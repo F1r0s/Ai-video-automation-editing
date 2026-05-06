@@ -1,0 +1,116 @@
+name: Run Video Automation Pipeline
+
+on:
+  # ── Run automatically every day at 09:00 UTC ───────────────────────────────
+  schedule:
+    - cron: "0 9 * * *"
+
+  # ── Allow manual trigger from GitHub Actions UI ───────────────────────────
+  workflow_dispatch:
+    inputs:
+      game_name:
+        description: "Game name (e.g. 'One State RP')"
+        required: true
+        default: "One State RP"
+      max_videos:
+        description: "Max videos to process"
+        required: false
+        default: "3"
+      dry_run:
+        description: "Dry run (skip uploads)?"
+        type: boolean
+        default: false
+
+env:
+  GAME: ${{ github.event.inputs.game_name || 'One State RP' }}
+  MAX_VIDEOS: ${{ github.event.inputs.max_videos || '3' }}
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      # ── Checkout ────────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── System dependencies ──────────────────────────────────────────────────
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+
+      # ── Python ──────────────────────────────────────────────────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install Playwright browsers
+        run: playwright install chromium --with-deps
+
+      # ── Secrets → .env ───────────────────────────────────────────────────────
+      - name: Write .env from GitHub Secrets
+        run: |
+          cat <<EOF > .env
+          ELEVENLABS_API_KEY=${{ secrets.ELEVENLABS_API_KEY }}
+          ELEVENLABS_VOICE_ID=${{ secrets.ELEVENLABS_VOICE_ID }}
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          TIKTOK_ACCESS_TOKEN=${{ secrets.TIKTOK_ACCESS_TOKEN }}
+          INSTAGRAM_ACCESS_TOKEN=${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
+          INSTAGRAM_USER_ID=${{ secrets.INSTAGRAM_USER_ID }}
+          FACEBOOK_ACCESS_TOKEN=${{ secrets.FACEBOOK_ACCESS_TOKEN }}
+          FACEBOOK_PAGE_ID=${{ secrets.FACEBOOK_PAGE_ID }}
+          INSTAGRAM_USERNAME=${{ secrets.INSTAGRAM_USERNAME }}
+          INSTAGRAM_PASSWORD=${{ secrets.INSTAGRAM_PASSWORD }}
+          X_API_KEY=${{ secrets.X_API_KEY }}
+          X_API_SECRET=${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN=${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET=${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          EOF
+
+      # ── YouTube OAuth token from secret ──────────────────────────────────────
+      - name: Restore YouTube credentials
+        run: |
+          mkdir -p secrets
+          echo '${{ secrets.YOUTUBE_CLIENT_SECRET_JSON }}' > secrets/youtube_client_secret.json
+          echo '${{ secrets.YOUTUBE_TOKEN_PICKLE_B64 }}' | base64 -d > secrets/youtube_token.pkl || true
+
+      # ── Branding image ───────────────────────────────────────────────────────
+      - name: Restore branding image
+        run: echo '${{ secrets.BRANDING_IMAGE_B64 }}' | base64 -d > branding.png
+
+      # ── Run pipeline ─────────────────────────────────────────────────────────
+      - name: Run automation pipeline
+        run: |
+          DRY_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            DRY_FLAG="--dry-run"
+          fi
+          python main.py "$GAME" \
+            --landing-url "https://example.com" \
+            --max-videos "$MAX_VIDEOS" \
+            $DRY_FLAG
+
+      # ── Upload logs as artifact ───────────────────────────────────────────────
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-logs-${{ github.run_id }}
+          path: logs/
+          retention-days: 7
+
+      # ── Upload edited videos ──────────────────────────────────────────────────
+      - name: Upload edited videos
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: edited-videos-${{ github.run_id }}
+          path: downloads/edited/
+          retention-days: 3

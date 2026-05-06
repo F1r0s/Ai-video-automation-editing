@@ -1,0 +1,32 @@
+# ── Secrets and credentials ────────────────────────────────────────────────
+.env
+secrets/
+*.pkl
+*.pickle
+
+# ── Downloaded media ───────────────────────────────────────────────────────
+downloads/
+
+# ── Runtime logs ──────────────────────────────────────────────────────────
+logs/
+
+# ── Python cache ──────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# ── Virtual environments ──────────────────────────────────────────────────
+venv/
+.venv/
+env/
+
+# ── Whisper model cache ───────────────────────────────────────────────────
+~/.cache/whisper/
+
+# ── OS files ──────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
