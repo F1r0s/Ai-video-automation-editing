@@ -4,7 +4,7 @@ Hosts the HTML visual editor and processes videos.
 """
 import os, json, logging
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 
@@ -41,6 +41,28 @@ APP_SECRET_PWD = os.getenv("APP_PASSWORD", "promo123")
 def index():
     return render_template('index.html')
 
+def update_status(msg):
+    try:
+        with open("status.json", "w") as f:
+            json.dump({"message": msg}, f)
+    except:
+        pass
+
+@app.route('/api/status', methods=['GET'])
+def get_status():
+    try:
+        if os.path.exists("status.json"):
+            with open("status.json", "r") as f:
+                return jsonify(json.load(f))
+    except:
+        pass
+    return jsonify({"message": "Processing..."})
+
+@app.route('/output/<filename>')
+def serve_output(filename):
+    cfg = Config()
+    return send_from_directory(str(cfg.RAW_DIR), filename)
+
 @app.route('/api/verify', methods=['POST'])
 def verify_pwd():
     data = request.get_json() or {}
@@ -50,6 +72,8 @@ def verify_pwd():
 
 @app.route('/api/generate', methods=['POST'])
 def generate():
+    # Reset status
+    update_status("Starting pipeline...")
     # 1. Check Password
     pwd = request.form.get('pwd', '')
     if pwd != APP_SECRET_PWD:
@@ -87,10 +111,12 @@ def generate():
     )
 
     log.info(f"Starting web pipeline for: {game}")
+    update_status(f"Searching web for: {game}...")
     search_term = game if "mod" in game.lower() else f"{game} MOD"
     candidates = scraper.search(f"{search_term} gameplay", max_results=max_v * 3)
     
     if not candidates:
+        update_status("Error: No videos found to scrape.")
         return jsonify({"error": "No videos found to scrape."}), 404
 
     videos = candidates[:max_v]
@@ -98,26 +124,30 @@ def generate():
 
     for idx, meta in enumerate(videos, 1):
         log.info(f"Downloading video {idx}/{len(videos)}...")
+        update_status(f"Downloading raw video {idx}/{len(videos)}...")
         raw_path = scraper.download(meta)
         if not raw_path:
             continue
 
         try:
+            update_status(f"Rendering video {idx}/{len(videos)}... (this takes a few minutes)")
             out_path = processor.process(
                 input_path=str(raw_path),
                 game_name=game,
                 channel_screenshot=screenshot_path,
                 landing_url=url,
-                progress_callback=lambda p, m: log.info(f"[{p}%] {m}"),
+                progress_callback=lambda p, m: update_status(f"[{p}%] {m}"),
                 overlay_data=overlays,
                 layout=layout
             )
             processed_files.append(out_path)
             log.info(f"Processed successfully: {out_path}")
         except Exception as e:
+            update_status(f"Error processing video: {e}")
             log.error(f"Error processing video: {e}")
 
     # 3. Send to Telegram
+    update_status("Sending to Telegram...")
     tg_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
     tg_chat = os.getenv("TELEGRAM_CHAT_ID", "")
     
@@ -140,9 +170,11 @@ def generate():
         os.remove(screenshot_path)
     except: pass
 
+    update_status("Complete!")
     return jsonify({
         "success": True,
-        "processed_count": len(processed_files)
+        "processed_count": len(processed_files),
+        "video_url": f"/output/{Path(processed_files[0]).name}" if processed_files else None
     })
 
 if __name__ == '__main__':

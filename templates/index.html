@@ -314,9 +314,20 @@
         btn.disabled = true;
         cancelBtn.style.display = 'inline-block';
         loader.style.display = 'block';
-        status.innerText = "Processing in the cloud! This may take 5-10 minutes. Videos will be sent to your Telegram.";
+        status.innerText = "Initializing...";
 
         window.abortController = new AbortController();
+
+        // Polling loop
+        const pollInterval = setInterval(async () => {
+            try {
+                const res = await fetch('/api/status');
+                const stData = await res.json();
+                if (stData.message && status.innerText.indexOf('✅') === -1 && status.innerText.indexOf('❌') === -1 && status.innerText.indexOf('⏸️') === -1) {
+                    status.innerText = stData.message;
+                }
+            } catch (e) {}
+        }, 1500);
 
         try {
             const response = await fetch('/api/generate', {
@@ -326,14 +337,34 @@
             });
             const data = await response.json();
             
+            clearInterval(pollInterval);
+            
             if (response.ok) {
-                status.innerText = `✅ Success! Processed ${data.processed_count} videos. Check Telegram!`;
+                status.innerText = `✅ Success! Generated videos. Delivery to Telegram!`;
                 status.style.color = "#00e676";
+                if (data.video_url) {
+                    // Show video
+                    let vidEl = document.getElementById('output_video');
+                    if (!vidEl) {
+                        vidEl = document.createElement('video');
+                        vidEl.id = 'output_video';
+                        vidEl.controls = true;
+                        vidEl.style.width = '100%';
+                        vidEl.style.marginTop = '15px';
+                        vidEl.style.border = '2px solid #00d4ff';
+                        vidEl.style.borderRadius = '8px';
+                        document.getElementById('main-app').appendChild(vidEl);
+                    }
+                    vidEl.src = data.video_url;
+                    vidEl.style.display = 'block';
+                    vidEl.play();
+                }
             } else {
                 status.innerText = `❌ Error: ${data.error}`;
                 status.style.color = "red";
             }
         } catch (e) {
+            clearInterval(pollInterval);
             if (e.name === 'AbortError') {
                 status.innerText = "⏸️ Cancelled.";
             } else {
