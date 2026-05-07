@@ -136,29 +136,57 @@ class VideoProcessor:
 
     def _make_subtitle_clips(self, segments: list[dict], w: int, h: int) -> list:
         clips = []
-        font = str(FONT_PATH) if FONT_PATH.exists() else "Arial"
-        for seg in segments:
-            txt = seg["text"].strip()
-            start, end = seg["start"], seg["end"]
-            dur = end - start
-            if not txt or dur <= 0:
-                continue
-            wrapped = "\n".join(textwrap.wrap(txt, width=28))
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+            import numpy as np
+            from moviepy.editor import ImageClip
+            
+            font_path = str(FONT_PATH) if FONT_PATH.exists() else "arial.ttf"
             try:
+                font = ImageFont.truetype(font_path, 54)
+            except IOError:
+                font = ImageFont.load_default()
+
+            for seg in segments:
+                txt = seg["text"].strip()
+                start, end = seg["start"], seg["end"]
+                dur = end - start
+                if not txt or dur <= 0:
+                    continue
+                
+                wrapped = "\n".join(textwrap.wrap(txt, width=28))
+                
+                # Create transparent PIL image
+                img = Image.new('RGBA', (w - 80, 200), (255, 255, 255, 0))
+                draw = ImageDraw.Draw(img)
+                
+                # Calculate text size using textbbox for newer PIL versions
+                bbox = draw.textbbox((0, 0), wrapped, font=font, align="center")
+                tw = bbox[2] - bbox[0]
+                th = bbox[3] - bbox[1]
+                
+                # Center text
+                tx = ((w - 80) - tw) / 2
+                ty = (200 - th) / 2
+                
+                # Draw text with stroke (black border)
+                stroke_width = 3
+                draw.text((tx, ty), wrapped, font=font, fill="white", align="center", 
+                          stroke_width=stroke_width, stroke_fill="black")
+                
+                # Convert to numpy array
+                img_np = np.array(img)
+                
+                # Create ImageClip
                 clip = (
-                    TextClip(
-                        wrapped,
-                        fontsize=54, font=font,
-                        color="white", stroke_color="black", stroke_width=3,
-                        method="caption", size=(w - 80, None), align="center",
-                    )
+                    ImageClip(img_np)
                     .set_start(start)
                     .set_duration(dur)
                     .set_position(("center", int(h * 0.70)))
                 )
                 clips.append(clip)
-            except Exception as e:
-                log.warning(f"Subtitle error: {e}")
+        except Exception as e:
+            log.warning(f"Failed to create PIL subtitle clip: {e}")
         return clips
 
     # ── CPA Link Bar (shown during gameplay, first 25 seconds) ─────────────────
