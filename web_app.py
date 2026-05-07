@@ -193,10 +193,17 @@ def generate():
         log.error(f"SEO/Thumb error: {e}")
 
     update_status("Complete!")
+    
+    if not processed_files:
+        return jsonify({
+            "success": False,
+            "error": "Pipeline failed. No videos were successfully processed. Check terminal logs."
+        }), 500
+        
     return jsonify({
         "success": True,
         "processed_count": len(processed_files),
-        "video_url": f"/output/{Path(processed_files[0]).name}" if processed_files else None,
+        "video_url": f"/output/{Path(processed_files[0]).name}",
         "seo": seo_data_dict,
         "thumb_url": thumb_url
     })
