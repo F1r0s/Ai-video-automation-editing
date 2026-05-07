@@ -128,6 +128,23 @@
             <button class="btn btn-clear" onclick="clearStickers()">Clear</button>
         </div>
 
+        <h3 style="text-align:center; margin-top:20px;">CAPTION SETTINGS</h3>
+        <label>Caption Color</label>
+        <select id="caption_color" style="width:100%; padding:8px; margin-bottom:10px; background:var(--input); color:white; border:none; border-radius:4px;">
+            <option value="yellow">⭐ Attractive Yellow</option>
+            <option value="white">⚪ Clean White</option>
+            <option value="#00e676">🟩 Neon Green</option>
+            <option value="#00d4ff">🟦 Neon Cyan</option>
+        </select>
+
+        <label>Caption Position</label>
+        <select id="caption_pos" style="width:100%; padding:8px; margin-bottom:20px; background:var(--input); color:white; border:none; border-radius:4px;">
+            <option value="0.70">Center Low (Default)</option>
+            <option value="0.50">Dead Center</option>
+            <option value="0.25">Top High</option>
+            <option value="0.85">Very Bottom</option>
+        </select>
+
         <button id="genBtn" class="gen-btn" onclick="generateVideos()">GENERATE VIDEOS</button>
         <button id="cancelBtn" class="gen-btn" onclick="cancelGeneration()" style="display:none; background:#e53935; margin-top:5px;">CANCEL</button>
     </div>
@@ -257,6 +274,9 @@
         const url = document.getElementById('landing_url').value;
         const max_v = document.getElementById('max_videos').value;
         const fileInput = document.getElementById('screenshot').files[0];
+        const cap_color = document.getElementById('caption_color').value;
+        const cap_pos = document.getElementById('caption_pos').value;
+
         if (!game) return alert("Enter game name!");
         if (!url) return alert("Enter landing page link!");
         if (!fileInput) return alert("Upload a screenshot!");
@@ -304,6 +324,8 @@
         formData.append('game', game);
         formData.append('url', url);
         formData.append('max', max_v);
+        formData.append('caption_color', cap_color);
+        formData.append('caption_pos', cap_pos);
         formData.append('screenshot', fileInput);
         formData.append('overlays', JSON.stringify(overlays));
         formData.append('layout', JSON.stringify(layout));

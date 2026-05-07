@@ -134,7 +134,7 @@ class VideoProcessor:
         result = model.transcribe(str(audio_path), language="en", fp16=False)
         return result.get("segments", [])
 
-    def _make_subtitle_clips(self, segments: list[dict], w: int, h: int) -> list:
+    def _make_subtitle_clips(self, segments: list[dict], w: int, h: int, color: str, pos_y: float) -> list:
         clips = []
         try:
             from PIL import Image, ImageDraw, ImageFont
@@ -171,7 +171,7 @@ class VideoProcessor:
                 
                 # Draw text with stroke (black border)
                 stroke_width = 3
-                draw.text((tx, ty), wrapped, font=font, fill="white", align="center", 
+                draw.text((tx, ty), wrapped, font=font, fill=color, align="center", 
                           stroke_width=stroke_width, stroke_fill="black")
                 
                 # Convert to numpy array
@@ -182,7 +182,7 @@ class VideoProcessor:
                     ImageClip(img_np)
                     .set_start(start)
                     .set_duration(dur)
-                    .set_position(("center", int(h * 0.70)))
+                    .set_position(("center", int(h * pos_y)))
                 )
                 clips.append(clip)
         except Exception as e:
@@ -348,6 +348,8 @@ class VideoProcessor:
         progress_callback: Optional[Callable] = None,
         overlay_data: list = None,
         layout: dict = None,
+        caption_color: str = "yellow",
+        caption_pos: float = 0.70,
     ) -> str:
         """
         Full pipeline for one video file.
@@ -399,7 +401,7 @@ class VideoProcessor:
             segments = self._transcribe(vo_path)
             # Only show subtitles during the first 25 seconds (gameplay part)
             filtered_segs = [s for s in segments if s["start"] < (MAX_DUR - 5)]
-            sub_clips = self._make_subtitle_clips(filtered_segs, TARGET_W, TARGET_H)
+            sub_clips = self._make_subtitle_clips(filtered_segs, TARGET_W, TARGET_H, caption_color, caption_pos)
             if sub_clips:
                 clip = CompositeVideoClip([clip] + sub_clips)
         except Exception as e:

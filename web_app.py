@@ -85,6 +85,8 @@ def generate():
     game = request.form.get('game', '').strip()
     url = request.form.get('url', '').strip()
     max_v = int(request.form.get('max', 3))
+    cap_color = request.form.get('caption_color', 'yellow')
+    cap_pos = float(request.form.get('caption_pos', 0.70))
     overlays_json = request.form.get('overlays', '[]')
     layout_json = request.form.get('layout', '{}')
 
@@ -141,7 +143,9 @@ def generate():
                 landing_url=url,
                 progress_callback=lambda p, m: update_status(f"[{p}%] {m}"),
                 overlay_data=overlays,
-                layout=layout
+                layout=layout,
+                caption_color=cap_color,
+                caption_pos=cap_pos
             )
             processed_files.append(out_path)
             log.info(f"Processed successfully: {out_path}")
