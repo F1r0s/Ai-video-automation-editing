@@ -165,34 +165,56 @@ def generate():
             except Exception as e:
                 log.error(f"Telegram error: {e}")
 
-    # Clean up screenshot
+    update_status("Generating SEO and Thumbnail...")
+    seo_data_dict = {}
+    thumb_url = None
     try:
-        os.remove(screenshot_path)
-    except: pass
+        from seo import SEOGenerator
+        seo_gen = SEOGenerator()
+        seo_pkgs = seo_gen.generate(game)
+        seo_data_dict = {k: {"title": v.title, "description": v.description, "hashtags": v.hashtags} for k, v in seo_pkgs.items()}
+        
+        if processed_files:
+            from moviepy.editor import VideoFileClip
+            clip = VideoFileClip(processed_files[0])
+            thumb_name = f"thumb_{Path(processed_files[0]).stem}.jpg"
+            thumb_path = os.path.join(cfg.RAW_DIR, thumb_name)
+            clip.save_frame(str(thumb_path), t=clip.duration/2)
+            thumb_url = f"/output/{thumb_name}"
+            clip.close()
+    except Exception as e:
+        log.error(f"SEO/Thumb error: {e}")
 
     update_status("Complete!")
     return jsonify({
         "success": True,
         "processed_count": len(processed_files),
-        "video_url": f"/output/{Path(processed_files[0]).name}" if processed_files else None
+        "video_url": f"/output/{Path(processed_files[0]).name}" if processed_files else None,
+        "seo": seo_data_dict,
+        "thumb_url": thumb_url
     })
 
 if __name__ == '__main__':
-    # Run as a Desktop App locally using pywebview
+    # Run as a Desktop App locally
     import threading
-    try:
-        import webview
+    import os
+    import time
+
+    def run_server():
+        app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)
         
-        def run_server():
-            app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)
-            
-        t = threading.Thread(target=run_server)
-        t.daemon = True
-        t.start()
-        
-        webview.create_window("AI Video Automation Studio", "http://127.0.0.1:5000")
-        webview.start()
-    except ImportError:
-        # Fallback to normal web server if pywebview is not installed
-        log.warning("pywebview not installed. Running in browser mode.")
-        app.run(host='0.0.0.0', port=5000, debug=True)
+    t = threading.Thread(target=run_server)
+    t.daemon = True
+    t.start()
+    
+    # Wait a moment for server to start
+    time.sleep(1)
+    
+    # Open as a desktop app using Edge or Chrome's app mode
+    log.info("Opening Desktop App Window...")
+    # Tries to open Edge in app mode (looks like a native windows app). Falls back to standard browser.
+    result = os.system('start msedge --app="http://127.0.0.1:5000" || start chrome --app="http://127.0.0.1:5000" || start http://127.0.0.1:5000')
+    
+    # Keep main thread alive
+    while True:
+        time.sleep(100)

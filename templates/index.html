@@ -21,17 +21,25 @@
             margin: 0; padding: 0;
             display: flex; flex-direction: column; align-items: center;
         }
-        .container {
-            width: 100%; max-width: 500px; padding: 20px;
-            box-sizing: border-box;
+        .dashboard {
+            display: none;
+            grid-template-columns: 350px 1fr 350px;
+            gap: 20px;
+            width: 100%; max-width: 1400px;
+            padding: 20px; box-sizing: border-box;
+            align-items: start;
         }
-        h1 { color: var(--accent); text-align: center; margin-bottom: 5px; }
-        p.subtitle { text-align: center; color: #888; margin-top: 0; }
+        .header { width: 100%; text-align: center; }
+        h1 { color: var(--accent); margin-bottom: 5px; }
+        p.subtitle { color: #888; margin-top: 0; }
         
-        .card {
+        .col {
             background: var(--card); border: 1px solid var(--input);
             border-radius: 8px; padding: 15px; margin-bottom: 15px;
         }
+        .col-red { border: 2px solid red; }
+        .col-blue { border: 2px solid #00d4ff; }
+        .col-green { border: 2px solid #00e676; }
         label { display: block; font-weight: bold; margin-bottom: 5px; }
         input[type="text"], input[type="number"], input[type="file"] {
             width: 100%; padding: 10px; background: var(--input);
@@ -95,47 +103,81 @@
     </div>
 </div>
 
-<div class="container" id="main-app" style="display:none;">
+<div class="header" id="main-header" style="display:none;">
     <h1>AI VIDEO</h1>
     <p class="subtitle">Cloud Automation Studio</p>
+</div>
 
-    <div class="card">
+<div class="dashboard" id="main-app">
+    <!-- LEFT COLUMN: Red Border (Inputs & Preview) -->
+    <div class="col col-red">
         <input type="hidden" id="app_pwd">
-
-        <label>2. Game Name</label>
+        <label>Game Name</label>
         <input type="text" id="game_name" placeholder="e.g. One State RP">
         
-        <label>3. Videos to Generate</label>
-        <input type="number" id="max_videos" value="3" min="1" max="10">
+        <label>Videos to Generate</label>
+        <input type="number" id="max_videos" value="1" min="1" max="10">
 
-        <label>4. CPA Landing Page Link</label>
+        <label>CPA Landing Page Link</label>
         <input type="text" id="landing_url" placeholder="https://your-landing-page.com">
         
-        <label>5. Channel Screenshot</label>
+        <label>Channel Screenshot</label>
         <input type="file" id="screenshot" accept="image/*">
+
+        <h3 style="text-align:center;">PREVIEW EDITOR</h3>
+        <p style="text-align:center; font-size:12px; color:#aaa;">9:16 Ratio for Shorts & TikTok</p>
+        
+        <div class="canvas-container-wrapper">
+            <canvas id="c" width="270" height="480"></canvas>
+        </div>
+
+        <div class="toolbar">
+            <button class="btn" onclick="addCircle()">O Circle</button>
+            <button class="btn" onclick="addArrow()">▼ Arrow</button>
+            <button class="btn" onclick="addFinger()">☝ Finger</button>
+            <button class="btn btn-yellow" onclick="addText('Click Here!')">Click Here!</button>
+            <button class="btn btn-yellow" onclick="addText('Download!')">Download!</button>
+            <button class="btn btn-clear" onclick="clearStickers()">Clear</button>
+        </div>
+
+        <button id="genBtn" class="gen-btn" onclick="generateVideos()">GENERATE VIDEOS</button>
+        <button id="cancelBtn" class="gen-btn" onclick="cancelGeneration()" style="display:none; background:#e53935; margin-top:5px;">CANCEL</button>
     </div>
 
-    <h3>PREVIEW EDITOR</h3>
-    <p style="text-align:center; font-size:12px; color:#aaa;">Upload an image, then tap stickers to add them. Drag corners to resize!</p>
-    
-    <div class="canvas-container-wrapper">
-        <canvas id="c" width="270" height="480"></canvas>
+    <!-- MIDDLE COLUMN: Blue Border (Progress Logs & Video Output) -->
+    <div class="col col-blue" style="justify-content:space-between;">
+        <div>
+            <h3 style="color:var(--accent); text-align:center; margin-top:0;">Pipeline Status</h3>
+            <div id="loading" class="loader"></div>
+            <p id="status" style="white-space:pre-wrap; text-align:left; font-family:monospace; color:#00e676; min-height:200px; background:#000; padding:10px; border-radius:4px;"></p>
+        </div>
+        
+        <div id="video_output_container" style="display:none; border-top:2px solid var(--accent); padding-top:15px;">
+            <h3 style="text-align:center; margin-top:0;">Final Video (9:16)</h3>
+            <video id="output_video" controls style="width:100%; max-height:500px; border-radius:8px; background:#000;"></video>
+        </div>
     </div>
 
-    <div class="toolbar">
-        <button class="btn" onclick="addCircle()">O Circle</button>
-        <button class="btn" onclick="addArrow()">▼ Arrow</button>
-        <button class="btn" onclick="addFinger()">☝ Finger</button>
-        <button class="btn btn-yellow" onclick="addText('Click Here!')">Click Here!</button>
-        <button class="btn btn-yellow" onclick="addText('Download!')">Download!</button>
-        <button class="btn btn-yellow" onclick="addText('Link Here ↓')">Link Here ↓</button>
-        <button class="btn btn-clear" onclick="clearStickers()">Clear All</button>
-    </div>
+    <!-- RIGHT COLUMN: Green Border (SEO & Thumbnail) -->
+    <div class="col col-green">
+        <h3 style="color:#00e676; text-align:center; margin-top:0;">Generated SEO</h3>
+        <div id="seo_output" style="display:none;">
+            <label>YouTube Title:</label>
+            <textarea id="yt_title" rows="2" style="width:100%; background:var(--input); color:white; border:none; padding:5px; margin-bottom:10px;" readonly></textarea>
+            
+            <label>YouTube Description:</label>
+            <textarea id="yt_desc" rows="10" style="width:100%; background:var(--input); color:white; border:none; padding:5px; margin-bottom:10px;" readonly></textarea>
+            
+            <label>TikTok / X Hashtags:</label>
+            <textarea id="tt_tags" rows="3" style="width:100%; background:var(--input); color:white; border:none; padding:5px; margin-bottom:10px;" readonly></textarea>
+        </div>
+        <p id="seo_placeholder" style="text-align:center; color:#555;">Waiting for generation...</p>
 
-    <button id="genBtn" class="gen-btn" onclick="generateVideos()">GENERATE VIDEOS</button>
-    <button id="cancelBtn" class="gen-btn" onclick="cancelGeneration()" style="display:none; background:#e53935; margin-top:5px;">CANCEL</button>
-    <div id="loading" class="loader"></div>
-    <p id="status"></p>
+        <div id="thumb_container" style="display:none; margin-top:20px;">
+            <h3 style="color:#00e676; text-align:center;">Video Thumbnail</h3>
+            <img id="output_thumb" src="" style="width:100%; border-radius:8px; border:2px solid #00e676;">
+        </div>
+    </div>
 </div>
 
 <script>
@@ -342,23 +384,34 @@
             if (response.ok) {
                 status.innerText = `✅ Success! Generated videos. Delivery to Telegram!`;
                 status.style.color = "#00e676";
+                
+                // Show Video Output
                 if (data.video_url) {
-                    // Show video
-                    let vidEl = document.getElementById('output_video');
-                    if (!vidEl) {
-                        vidEl = document.createElement('video');
-                        vidEl.id = 'output_video';
-                        vidEl.controls = true;
-                        vidEl.style.width = '100%';
-                        vidEl.style.marginTop = '15px';
-                        vidEl.style.border = '2px solid #00d4ff';
-                        vidEl.style.borderRadius = '8px';
-                        document.getElementById('main-app').appendChild(vidEl);
-                    }
+                    document.getElementById('video_output_container').style.display = 'block';
+                    const vidEl = document.getElementById('output_video');
                     vidEl.src = data.video_url;
-                    vidEl.style.display = 'block';
                     vidEl.play();
                 }
+
+                // Show SEO & Thumbnail
+                document.getElementById('seo_placeholder').style.display = 'none';
+                document.getElementById('seo_output').style.display = 'block';
+                
+                if (data.seo) {
+                    if (data.seo.youtube) {
+                        document.getElementById('yt_title').value = data.seo.youtube.title || "";
+                        document.getElementById('yt_desc').value = data.seo.youtube.description || "";
+                    }
+                    if (data.seo.tiktok) {
+                        document.getElementById('tt_tags').value = (data.seo.tiktok.hashtags || []).map(t => '#' + t).join(' ');
+                    }
+                }
+
+                if (data.thumb_url) {
+                    document.getElementById('thumb_container').style.display = 'block';
+                    document.getElementById('output_thumb').src = data.thumb_url;
+                }
+                
             } else {
                 status.innerText = `❌ Error: ${data.error}`;
                 status.style.color = "red";
