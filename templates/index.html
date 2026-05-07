@@ -260,6 +260,7 @@
         // Extract layout mapping format
         const overlays = [];
         let ss_ox = 0, ss_oy = 0, ss_zoom = 1.0;
+        let link_x = 0.5, link_y = 0.96, link_scale = 1.0;
 
         canvas.getObjects().forEach(obj => {
             const cx = obj.left / 270;
@@ -271,6 +272,10 @@
                 ss_zoom = obj.scaleX / auto_scale;
                 ss_ox = (obj.left + (obj.width * obj.scaleX)/2 - 135) / 270;
                 ss_oy = (obj.top + (obj.height * obj.scaleY)/2 - 240) / 480;
+            } else if (obj === linkTextObj) {
+                link_x = cx;
+                link_y = cy;
+                link_scale = obj.scaleX;
             } else if (obj.customKind) {
                 const s = obj.scaleX;
                 const overlay = { kind: obj.customKind, cx: cx, cy: cy, size: s };
@@ -283,7 +288,7 @@
             }
         });
 
-        const layout = { ss_ox, ss_oy, ss_zoom, link_x: 0.5, link_y: 0.96 };
+        const layout = { ss_ox, ss_oy, ss_zoom, link_x, link_y, link_scale };
 
         // Freeze canvas
         canvas.getObjects().forEach(o => { o.selectable = false; o.evented = false; });
@@ -357,7 +362,7 @@
             linkTextObj = new fabric.Text(urlStr, {
                 fill: '#64dcff', backgroundColor: 'rgba(0,0,0,0.8)', fontSize: 14, fontWeight: 'normal',
                 left: 135, top: 460, originX: 'center', originY: 'center', padding: 5,
-                selectable: false, evented: false
+                selectable: true, evented: true
             });
             canvas.add(linkTextObj);
         } else {

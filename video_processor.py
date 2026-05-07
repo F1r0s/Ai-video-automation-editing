@@ -196,6 +196,7 @@ class VideoProcessor:
         ss_zoom = lay.get("ss_zoom", 1.0)
         link_x = lay.get("link_x", 0.5)
         link_y = lay.get("link_y", 0.96)
+        link_scale = lay.get("link_scale", 1.0)
 
         # Pre-render screenshot at correct position
         ss_img = Image.open(screenshot_path).convert("RGBA")
@@ -211,7 +212,8 @@ class VideoProcessor:
 
         try:
             sticker_font = ImageFont.truetype(str(FONT_PATH), 48) if FONT_PATH.exists() else ImageFont.load_default()
-            link_font = ImageFont.truetype(str(FONT_PATH), 30) if FONT_PATH.exists() else ImageFont.load_default()
+            base_fs = max(15, int(30 * link_scale))
+            link_font = ImageFont.truetype(str(FONT_PATH), base_fs) if FONT_PATH.exists() else ImageFont.load_default()
         except Exception:
             sticker_font = link_font = ImageFont.load_default()
 
