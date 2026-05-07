@@ -223,7 +223,7 @@ class VideoScraper:
             "-o", output_tmpl,
             "--merge-output-format", "mp4",
             "--no-playlist",
-            "--match-filter", "duration < 1800"
+            "--download-sections", "*00:00:00-00:02:00"
         ]
         if self.cfg.YT_DLP_COOKIES:
             cmd += ["--cookies", self.cfg.YT_DLP_COOKIES]
