@@ -275,7 +275,8 @@
             if (data.success) {
                 document.getElementById('app_pwd').value = pwd; // Save for generate
                 document.getElementById('auth-overlay').style.display = 'none';
-                document.getElementById('main-app').style.display = 'block';
+                document.getElementById('main-app').style.display = 'grid';
+                document.getElementById('main-header').style.display = 'block';
             } else {
                 const err = document.getElementById('auth-error');
                 err.style.display = 'block';

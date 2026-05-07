@@ -75,16 +75,19 @@ class VideoProcessor:
             log.warning(f"ElevenLabs failed: {e}")
             return False
 
-    def _gtts_fallback(self, text: str, out: Path):
-        tts = gTTS(text=text, lang="en", slow=False)
-        tts.save(str(out))
+    def _gtts_fallback(self, text: str, out: Path) -> bool:
+        try:
+            log.info("Using gTTS fallback for voiceover...")
+            tts = gTTS(text=text, lang="en", slow=False)
+            tts.save(str(out))
+            return True
+        except Exception as e:
+            log.error(f"gTTS fallback failed: {e}")
+            return False
 
     def _make_voiceover(self, game_name: str) -> Path:
         """
         Generate a LONG voiceover script that fills ~30 seconds.
-        gTTS speaks ~3 words/second, so we need ~90 words.
-        ElevenLabs speaks ~2.5 words/second, so ~75 words.
-        We write ~85 words to be safe.
         """
         hook = (
             f"Wait. Are you still playing {game_name} the normal way? "
@@ -101,8 +104,21 @@ class VideoProcessor:
             f"Go ahead. Download it now. You will not regret it."
         )
         out = Path(tempfile.mktemp(suffix=".mp3"))
-        if not self._elevenlabs_tts(hook, out):
-            self._gtts_fallback(hook, out)
+        
+        # Try ElevenLabs first
+        success = self._elevenlabs_tts(hook, out)
+        
+        # Try gTTS fallback
+        if not success:
+            success = self._gtts_fallback(hook, out)
+            
+        # If BOTH fail (network error, rate limit, etc), create a silent audio file so it doesn't crash!
+        if not success or not out.exists():
+            log.warning("ALL TTS FAILED! Using 1-second silent audio to prevent crash.")
+            from moviepy.editor import AudioClip
+            silent = AudioClip(lambda t: [0,0], duration=5, fps=44100)
+            silent.write_audiofile(str(out), fps=44100, logger=None)
+            
         return out
 
     # ── Whisper subtitles ──────────────────────────────────────────────────────
