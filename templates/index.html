@@ -92,26 +92,14 @@
 </head>
 <body>
 
-<!-- Lock Screen -->
-<div id="auth-overlay">
-    <div id="auth-box">
-        <h2 style="color:var(--accent); margin-top:0;">🔒 Locked</h2>
-        <p style="color:#aaa; font-size:14px; margin-bottom:20px;">Enter the secret password to access the studio.</p>
-        <input type="password" id="auth_pwd" placeholder="Enter password..." style="text-align:center; font-size:18px;">
-        <button class="gen-btn" onclick="unlockApp()" style="margin-top:10px;">UNLOCK</button>
-        <p id="auth-error" style="color:red; display:none; margin-top:10px;">Incorrect Password!</p>
-    </div>
-</div>
-
-<div class="header" id="main-header" style="display:none;">
+<div class="header" id="main-header">
     <h1>AI VIDEO</h1>
     <p class="subtitle">Cloud Automation Studio</p>
 </div>
 
-<div class="dashboard" id="main-app">
+<div class="dashboard" id="main-app" style="display:grid;">
     <!-- LEFT COLUMN: Red Border (Inputs & Preview) -->
     <div class="col col-red">
-        <input type="hidden" id="app_pwd">
         <label>Game Name</label>
         <input type="text" id="game_name" placeholder="e.g. One State RP">
         
@@ -259,43 +247,12 @@
         });
     }
 
-    // Auth Logic
-    async function unlockApp() {
-        const pwd = document.getElementById('auth_pwd').value;
-        if (!pwd) return;
-        
-        try {
-            const res = await fetch('/api/verify', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ pwd: pwd })
-            });
-            const data = await res.json();
-            
-            if (data.success) {
-                document.getElementById('app_pwd').value = pwd; // Save for generate
-                document.getElementById('auth-overlay').style.display = 'none';
-                document.getElementById('main-app').style.display = 'grid';
-                document.getElementById('main-header').style.display = 'block';
-            } else {
-                const err = document.getElementById('auth-error');
-                err.style.display = 'block';
-                setTimeout(() => err.style.display = 'none', 3000);
-            }
-        } catch (e) {
-            alert("Network error checking password.");
-        }
-    }
-
     // Export Layout and Submit to API
     async function generateVideos() {
-        const pwd = document.getElementById('app_pwd').value;
         const game = document.getElementById('game_name').value;
         const url = document.getElementById('landing_url').value;
         const max_v = document.getElementById('max_videos').value;
         const fileInput = document.getElementById('screenshot').files[0];
-
-        if (!pwd) return alert("Please enter the password!");
         if (!game) return alert("Enter game name!");
         if (!url) return alert("Enter landing page link!");
         if (!fileInput) return alert("Upload a screenshot!");
@@ -340,7 +297,6 @@
 
         // Prepare FormData
         const formData = new FormData();
-        formData.append('pwd', pwd);
         formData.append('game', game);
         formData.append('url', url);
         formData.append('max', max_v);

@@ -81,10 +81,6 @@ def verify_pwd():
 def generate():
     # Reset status
     update_status("Starting pipeline...")
-    # 1. Check Password
-    pwd = request.form.get('pwd', '')
-    if pwd != APP_SECRET_PWD:
-        return jsonify({"error": "Incorrect password!"}), 403
 
     game = request.form.get('game', '').strip()
     url = request.form.get('url', '').strip()
