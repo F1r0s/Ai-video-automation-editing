@@ -121,6 +121,26 @@ def run_pipeline(game_name: str, branding_image: str, landing_url: str,
             seo        = item["seo"],
         )
 
+    # ── STEP 4: Telegram Notification ─────────────────────────────────────────
+    if cfg.TELEGRAM_BOT_TOKEN and cfg.TELEGRAM_CHAT_ID:
+        log.info("[4/4] Sending final video to Telegram...")
+        import requests
+        for item in processed:
+            video_path = item["path"]
+            url = f"https://api.telegram.org/bot{cfg.TELEGRAM_BOT_TOKEN}/sendVideo"
+            try:
+                with open(video_path, "rb") as f:
+                    resp = requests.post(
+                        url,
+                        data={"chat_id": cfg.TELEGRAM_CHAT_ID, "caption": "🎥 New video ready: " + item['meta'].get('title', '')[:50]},
+                        files={"video": f},
+                        timeout=300
+                    )
+                resp.raise_for_status()
+                log.info("  ✓ Video sent to Telegram!")
+            except Exception as e:
+                log.error(f"  ✗ Failed to send to Telegram: {e}")
+
     log.info("=" * 60)
     log.info("  PIPELINE COMPLETE")
     log.info("=" * 60)

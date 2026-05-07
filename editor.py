@@ -22,6 +22,9 @@ from pathlib import Path
 from typing import Optional
 
 from PIL import Image, ImageDraw, ImageFont
+# Monkey-patch for MoviePy 1.0.3 compatibility with Pillow 10+
+if not hasattr(Image, 'ANTIALIAS'):
+    Image.ANTIALIAS = Image.LANCZOS
 from moviepy.editor import (
     VideoFileClip, AudioFileClip, CompositeVideoClip,
     ImageClip, TextClip, concatenate_videoclips,

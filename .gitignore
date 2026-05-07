@@ -1,6 +1,7 @@
 # ── Secrets and credentials ────────────────────────────────────────────────
 .env
 secrets/
+cookies.txt
 *.pkl
 *.pickle
 

@@ -10,7 +10,7 @@ python-dotenv>=1.0.0        # .env file loading
 yt-dlp>=2024.3.10           # YouTube & TikTok scraping / download
 
 # ── Video Editing ─────────────────────────────────────────────────────────────
-moviepy>=1.0.3              # Video composition, trimming, overlay
+moviepy==1.0.3              # Video composition, trimming, overlay
 Pillow>=10.0.0              # Image manipulation (branding overlay)
 ffmpeg-python>=0.2.0        # Low-level ffmpeg bindings (used by moviepy)
 

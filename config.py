@@ -42,6 +42,10 @@ class Config:
     FACEBOOK_ACCESS_TOKEN   = os.getenv("FACEBOOK_ACCESS_TOKEN", "")
     FACEBOOK_PAGE_ID        = os.getenv("FACEBOOK_PAGE_ID", "")
 
+    # ── Telegram Notifications ────────────────────────────────────────────────
+    TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    TELEGRAM_CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID", "")
+
     # ── X (Twitter) ──────────────────────────────────────────────────────────
     X_API_KEY            = os.getenv("X_API_KEY", "")
     X_API_SECRET         = os.getenv("X_API_SECRET", "")
