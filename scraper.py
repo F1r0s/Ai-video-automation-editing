@@ -49,7 +49,7 @@ class VideoScraper:
         cmd.append(url)
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=120)
             items = []
             for line in result.stdout.splitlines():
                 line = line.strip()
@@ -218,7 +218,7 @@ class VideoScraper:
         try:
             subprocess.run(cmd, check=True, capture_output=True, timeout=300)
         except subprocess.CalledProcessError as exc:
-            log.error(f"  Download failed: {exc.stderr.decode()[:300]}")
+            log.error(f"  Download failed: {exc.stderr.decode('utf-8', errors='replace')[:300]}")
             return None
         except subprocess.TimeoutExpired:
             log.error("  Download timed out.")
