@@ -178,5 +178,21 @@ def generate():
     })
 
 if __name__ == '__main__':
-    # Run locally for testing before Cloud Run
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # Run as a Desktop App locally using pywebview
+    import threading
+    try:
+        import webview
+        
+        def run_server():
+            app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)
+            
+        t = threading.Thread(target=run_server)
+        t.daemon = True
+        t.start()
+        
+        webview.create_window("AI Video Automation Studio", "http://127.0.0.1:5000")
+        webview.start()
+    except ImportError:
+        # Fallback to normal web server if pywebview is not installed
+        log.warning("pywebview not installed. Running in browser mode.")
+        app.run(host='0.0.0.0', port=5000, debug=True)
