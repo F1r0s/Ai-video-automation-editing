@@ -87,7 +87,8 @@ def generate():
     )
 
     log.info(f"Starting web pipeline for: {game}")
-    candidates = scraper.search(f"{game} MOD gameplay", max_results=max_v * 3)
+    search_term = game if "mod" in game.lower() else f"{game} MOD"
+    candidates = scraper.search(f"{search_term} gameplay", max_results=max_v * 3)
     
     if not candidates:
         return jsonify({"error": "No videos found to scrape."}), 404
