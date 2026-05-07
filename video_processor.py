@@ -394,7 +394,7 @@ class VideoProcessor:
             out_path,
             codec="libx264", audio_codec="aac",
             fps=30, preset="fast", threads=4,
-            logger=None,
+            logger='bar',
         )
 
         # Cleanup
