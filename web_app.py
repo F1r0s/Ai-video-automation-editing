@@ -163,14 +163,18 @@ def generate():
         for fp in processed_files:
             try:
                 with open(fp, "rb") as f:
-                    requests.post(
+                    r = requests.post(
                         f"https://api.telegram.org/bot{tg_token}/sendVideo",
                         data={"chat_id": tg_chat, "caption": f"Promo ready: {Path(fp).name}"},
                         files={"video": f},
                         timeout=300
                     )
+                    if not r.ok:
+                        log.error(f"Telegram Error: {r.text}")
+                        update_status(f"Telegram failed: {r.text}")
             except Exception as e:
                 log.error(f"Telegram error: {e}")
+                update_status(f"Telegram failed: {e}")
 
     update_status("Generating SEO and Thumbnail...")
     seo_data_dict = {}
