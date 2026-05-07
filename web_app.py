@@ -31,6 +31,12 @@ APP_SECRET_PWD = os.getenv("APP_PASSWORD", "promo123")
 def index():
     return render_template('index.html')
 
+@app.route('/api/verify', methods=['POST'])
+def verify_pwd():
+    data = request.get_json() or {}
+    if data.get('pwd') == APP_SECRET_PWD:
+        return jsonify({"success": True})
+    return jsonify({"success": False}), 403
 
 @app.route('/api/generate', methods=['POST'])
 def generate():

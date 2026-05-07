@@ -69,17 +69,38 @@
             margin: 10px auto; display: none;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        /* Auth Overlay */
+        #auth-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #000; z-index: 9999; display: flex;
+            flex-direction: column; justify-content: center; align-items: center;
+        }
+        #auth-box {
+            background: var(--card); padding: 30px; border-radius: 12px;
+            border: 2px solid var(--accent); text-align: center; width: 80%; max-width: 350px;
+        }
     </style>
 </head>
 <body>
 
-<div class="container">
+<!-- Lock Screen -->
+<div id="auth-overlay">
+    <div id="auth-box">
+        <h2 style="color:var(--accent); margin-top:0;">🔒 Locked</h2>
+        <p style="color:#aaa; font-size:14px; margin-bottom:20px;">Enter the secret password to access the studio.</p>
+        <input type="password" id="auth_pwd" placeholder="Enter password..." style="text-align:center; font-size:18px;">
+        <button class="gen-btn" onclick="unlockApp()" style="margin-top:10px;">UNLOCK</button>
+        <p id="auth-error" style="color:red; display:none; margin-top:10px;">Incorrect Password!</p>
+    </div>
+</div>
+
+<div class="container" id="main-app" style="display:none;">
     <h1>AI VIDEO</h1>
     <p class="subtitle">Cloud Automation Studio</p>
 
     <div class="card">
-        <label>1. Password (to prevent strangers)</label>
-        <input type="text" id="app_pwd" placeholder="Enter secret password">
+        <input type="hidden" id="app_pwd">
 
         <label>2. Game Name</label>
         <input type="text" id="game_name" placeholder="e.g. One State RP">
@@ -193,6 +214,33 @@
         objects.forEach(obj => {
             if (obj !== bgImage) canvas.remove(obj);
         });
+    }
+
+    // Auth Logic
+    async function unlockApp() {
+        const pwd = document.getElementById('auth_pwd').value;
+        if (!pwd) return;
+        
+        try {
+            const res = await fetch('/api/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pwd: pwd })
+            });
+            const data = await res.json();
+            
+            if (data.success) {
+                document.getElementById('app_pwd').value = pwd; // Save for generate
+                document.getElementById('auth-overlay').style.display = 'none';
+                document.getElementById('main-app').style.display = 'block';
+            } else {
+                const err = document.getElementById('auth-error');
+                err.style.display = 'block';
+                setTimeout(() => err.style.display = 'none', 3000);
+            }
+        } catch (e) {
+            alert("Network error checking password.");
+        }
     }
 
     // Export Layout and Submit to API
