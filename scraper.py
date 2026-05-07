@@ -219,10 +219,11 @@ class VideoScraper:
 
         cmd = [
             "yt-dlp",
-            "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
             "-o", output_tmpl,
             "--merge-output-format", "mp4",
             "--no-playlist",
+            "--match-filter", "duration < 1800"
         ]
         if self.cfg.YT_DLP_COOKIES:
             cmd += ["--cookies", self.cfg.YT_DLP_COOKIES]
@@ -230,7 +231,7 @@ class VideoScraper:
 
         log.info(f"  Downloading: {video_url[:80]}")
         try:
-            subprocess.run(cmd, check=True, capture_output=True, timeout=300)
+            subprocess.run(cmd, check=True, capture_output=True, timeout=600)
         except subprocess.CalledProcessError as exc:
             log.error(f"  Download failed: {exc.stderr.decode('utf-8', errors='replace')[:300]}")
             return None
