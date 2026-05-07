@@ -41,3 +41,9 @@ playwright>=1.43.0
 
 # ── Scheduling (cloud cron) ───────────────────────────────────────────────────
 schedule>=1.2.1             # Pure-Python scheduler (optional, for cron-less envs)
+
+# -- Web App -----------------------------------------------------------------
+Flask>=3.0.0
+gunicorn>=21.0.0
+Werkzeug>=3.0.0
+

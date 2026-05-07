@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AI Video Automation</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+    <style>
+        :root {
+            --bg: #1a1a2e;
+            --card: #16213e;
+            --input: #0f3460;
+            --accent: #00d4ff;
+            --green: #00e676;
+            --text: #e6e6e6;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0; padding: 0;
+            display: flex; flex-direction: column; align-items: center;
+        }
+        .container {
+            width: 100%; max-width: 500px; padding: 20px;
+            box-sizing: border-box;
+        }
+        h1 { color: var(--accent); text-align: center; margin-bottom: 5px; }
+        p.subtitle { text-align: center; color: #888; margin-top: 0; }
+        
+        .card {
+            background: var(--card); border: 1px solid var(--input);
+            border-radius: 8px; padding: 15px; margin-bottom: 15px;
+        }
+        label { display: block; font-weight: bold; margin-bottom: 5px; }
+        input[type="text"], input[type="number"], input[type="file"] {
+            width: 100%; padding: 10px; background: var(--input);
+            border: 1px solid var(--accent); color: white; border-radius: 4px;
+            box-sizing: border-box; margin-bottom: 10px;
+        }
+        
+        /* Canvas */
+        .canvas-container-wrapper {
+            display: flex; justify-content: center; margin: 15px 0;
+            background: #000; border: 2px solid var(--accent);
+        }
+        
+        /* Toolbar */
+        .toolbar { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 15px;}
+        .btn {
+            background: #e53935; color: white; border: none; padding: 8px 12px;
+            border-radius: 4px; font-weight: bold; cursor: pointer;
+        }
+        .btn-yellow { background: #ffeb3b; color: #000; }
+        .btn-clear { background: #888; color: white; }
+        
+        .gen-btn {
+            background: var(--green); color: white; width: 100%;
+            padding: 15px; font-size: 18px; font-weight: bold;
+            border: none; border-radius: 8px; cursor: pointer;
+            margin-top: 10px;
+        }
+        .gen-btn:disabled { background: #555; cursor: not-allowed; }
+        
+        #status { text-align: center; margin-top: 15px; font-weight: bold; color: var(--accent); }
+        .loader {
+            border: 4px solid var(--card); border-top: 4px solid var(--accent);
+            border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite;
+            margin: 10px auto; display: none;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>AI VIDEO</h1>
+    <p class="subtitle">Cloud Automation Studio</p>
+
+    <div class="card">
+        <label>1. Password (to prevent strangers)</label>
+        <input type="text" id="app_pwd" placeholder="Enter secret password">
+
+        <label>2. Game Name</label>
+        <input type="text" id="game_name" placeholder="e.g. One State RP">
+        
+        <label>3. Videos to Generate</label>
+        <input type="number" id="max_videos" value="3" min="1" max="10">
+
+        <label>4. CPA Landing Page Link</label>
+        <input type="text" id="landing_url" placeholder="https://your-landing-page.com">
+        
+        <label>5. Channel Screenshot</label>
+        <input type="file" id="screenshot" accept="image/*">
+    </div>
+
+    <h3>PREVIEW EDITOR</h3>
+    <p style="text-align:center; font-size:12px; color:#aaa;">Upload an image, then tap stickers to add them. Drag corners to resize!</p>
+    
+    <div class="canvas-container-wrapper">
+        <canvas id="c" width="270" height="480"></canvas>
+    </div>
+
+    <div class="toolbar">
+        <button class="btn" onclick="addCircle()">O Circle</button>
+        <button class="btn" onclick="addArrow()">▼ Arrow</button>
+        <button class="btn" onclick="addFinger()">☝ Finger</button>
+        <button class="btn btn-yellow" onclick="addText('Click Here!')">Click Here!</button>
+        <button class="btn btn-yellow" onclick="addText('Download!')">Download!</button>
+        <button class="btn btn-yellow" onclick="addText('Link Here ↓')">Link Here ↓</button>
+        <button class="btn btn-clear" onclick="clearStickers()">Clear All</button>
+    </div>
+
+    <button id="genBtn" class="gen-btn" onclick="generateVideos()">GENERATE VIDEOS</button>
+    <div id="loading" class="loader"></div>
+    <p id="status"></p>
+</div>
+
+<script>
+    // Initialize Fabric.js Canvas
+    const canvas = new fabric.Canvas('c');
+    let bgImage = null;
+
+    // Handle Image Upload
+    document.getElementById('screenshot').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        const reader = new FileReader();
+        reader.onload = function(f) {
+            const data = f.target.result;
+            fabric.Image.fromURL(data, function(img) {
+                // Auto-scale to fit
+                const scale = 270 / img.width;
+                img.set({
+                    left: 0, top: 240 - ((img.height * scale) / 2),
+                    scaleX: scale, scaleY: scale,
+                    selectable: true, hasControls: true
+                });
+                
+                if (bgImage) canvas.remove(bgImage);
+                bgImage = img;
+                canvas.insertAt(bgImage, 0); // Always at bottom
+                canvas.renderAll();
+            });
+        };
+        reader.readAsDataURL(file);
+    });
+
+    // Stickers
+    function addCircle() {
+        const circle = new fabric.Circle({
+            radius: 40, fill: 'transparent', stroke: 'red', strokeWidth: 4,
+            left: 135, top: 240, originX: 'center', originY: 'center',
+            transparentCorners: false, cornerColor: 'white', borderColor: '#00d4ff', customKind: 'circle'
+        });
+        canvas.add(circle);
+        canvas.setActiveObject(circle);
+    }
+
+    function addArrow() {
+        const arrow = new fabric.Polygon([
+            {x: 0, y: -25}, {x: -15, y: 12}, {x: 15, y: 12}
+        ], {
+            fill: 'red', left: 135, top: 240, originX: 'center', originY: 'center',
+            transparentCorners: false, cornerColor: 'white', borderColor: '#00d4ff', customKind: 'arrow', scaleX: 1.5, scaleY: 1.5
+        });
+        canvas.add(arrow);
+        canvas.setActiveObject(arrow);
+    }
+
+    function addFinger() {
+        const text = new fabric.Text("☝", {
+            fill: 'red', fontSize: 40, left: 135, top: 240, originX: 'center', originY: 'center',
+            transparentCorners: false, cornerColor: 'white', borderColor: '#00d4ff', customKind: 'finger'
+        });
+        canvas.add(text);
+        canvas.setActiveObject(text);
+    }
+
+    function addText(str) {
+        const text = new fabric.Text(str, {
+            fill: 'yellow', backgroundColor: 'rgba(0,0,0,0.8)', fontSize: 18, fontWeight: 'bold',
+            left: 135, top: 240, originX: 'center', originY: 'center', padding: 5,
+            transparentCorners: false, cornerColor: 'white', borderColor: '#00d4ff', customKind: 'text', customText: str
+        });
+        canvas.add(text);
+        canvas.setActiveObject(text);
+    }
+
+    function clearStickers() {
+        const objects = canvas.getObjects();
+        objects.forEach(obj => {
+            if (obj !== bgImage) canvas.remove(obj);
+        });
+    }
+
+    // Export Layout and Submit to API
+    async function generateVideos() {
+        const pwd = document.getElementById('app_pwd').value;
+        const game = document.getElementById('game_name').value;
+        const url = document.getElementById('landing_url').value;
+        const max_v = document.getElementById('max_videos').value;
+        const fileInput = document.getElementById('screenshot').files[0];
+
+        if (!pwd) return alert("Please enter the password!");
+        if (!game) return alert("Enter game name!");
+        if (!url) return alert("Enter landing page link!");
+        if (!fileInput) return alert("Upload a screenshot!");
+
+        // Extract layout mapping format
+        const overlays = [];
+        let ss_ox = 0, ss_oy = 0, ss_zoom = 1.0;
+
+        canvas.getObjects().forEach(obj => {
+            const cx = obj.left / 270;
+            const cy = obj.top / 480;
+            
+            if (obj === bgImage) {
+                // Screenshot calculations
+                const auto_scale = 270 / obj.width;
+                ss_zoom = obj.scaleX / auto_scale;
+                ss_ox = (obj.left + (obj.width * obj.scaleX)/2 - 135) / 270;
+                ss_oy = (obj.top + (obj.height * obj.scaleY)/2 - 240) / 480;
+            } else if (obj.customKind) {
+                const s = obj.scaleX;
+                const overlay = { kind: obj.customKind, cx: cx, cy: cy, size: s };
+                if (obj.customKind === 'circle') {
+                    overlay.rx = (obj.radius * s) / 270;
+                    overlay.ry = (obj.radius * s) / 480;
+                }
+                if (obj.customKind === 'text') overlay.text = obj.customText;
+                overlays.push(overlay);
+            }
+        });
+
+        const layout = { ss_ox, ss_oy, ss_zoom, link_x: 0.5, link_y: 0.96 };
+
+        // Prepare FormData
+        const formData = new FormData();
+        formData.append('pwd', pwd);
+        formData.append('game', game);
+        formData.append('url', url);
+        formData.append('max', max_v);
+        formData.append('screenshot', fileInput);
+        formData.append('overlays', JSON.stringify(overlays));
+        formData.append('layout', JSON.stringify(layout));
+
+        // UI Loading State
+        const btn = document.getElementById('genBtn');
+        const loader = document.getElementById('loading');
+        const status = document.getElementById('status');
+        
+        btn.disabled = true;
+        loader.style.display = 'block';
+        status.innerText = "Processing in the cloud! This may take 5-10 minutes. Videos will be sent to your Telegram.";
+
+        try {
+            const response = await fetch('/api/generate', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await response.json();
+            
+            if (response.ok) {
+                status.innerText = `✅ Success! Processed ${data.processed_count} videos. Check Telegram!`;
+                status.style.color = "#00e676";
+            } else {
+                status.innerText = `❌ Error: ${data.error}`;
+                status.style.color = "red";
+            }
+        } catch (e) {
+            status.innerText = "❌ Network error. But if Telegram receives the video, it worked!";
+            status.style.color = "red";
+        }
+
+        btn.disabled = false;
+        loader.style.display = 'none';
+    }
+</script>
+
+</body>
+</html>

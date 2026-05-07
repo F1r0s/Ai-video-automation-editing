@@ -1,56 +1,29 @@
-# ─────────────────────────────────────────────────────────────────────────────
-#  Dockerfile — AI Video Automation Pipeline
-#  Base: Python 3.11 slim + ffmpeg + chromium
-# ─────────────────────────────────────────────────────────────────────────────
+# Use official Python lightweight image
+FROM python:3.10-slim
 
-FROM python:3.11-slim
-
-# ── System dependencies (ffmpeg + chromium for Playwright) ────────────────────
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        ffmpeg \
-        chromium \
-        chromium-driver \
-        fonts-liberation \
-        libglib2.0-0 \
-        libnss3 \
-        libatk-bridge2.0-0 \
-        libdrm2 \
-        libxkbcommon0 \
-        libxcomposite1 \
-        libxdamage1 \
-        libxfixes3 \
-        libxrandr2 \
-        libgbm1 \
-        libasound2 \
-        wget \
-        curl \
+# Install system dependencies required by MoviePy and Whisper
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    imagemagick \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
-# ── Working directory ─────────────────────────────────────────────────────────
+# Fix ImageMagick policy to allow editing/reading text and PDFs (needed by MoviePy TextClip)
+RUN sed -i 's/<policy domain="path" rights="none" pattern="@\*"/<!-- <policy domain="path" rights="none" pattern="@\*" -->/g' /etc/ImageMagick-6/policy.xml || true
+
+# Create app directory
 WORKDIR /app
 
-# ── Python dependencies ───────────────────────────────────────────────────────
+# Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright browsers
-RUN playwright install chromium --with-deps || true
-
-# ── Application code ──────────────────────────────────────────────────────────
+# Copy all files to container
 COPY . .
 
-# Create directories expected at runtime
-RUN mkdir -p downloads/raw downloads/edited logs secrets assets
+# Set environment variables for Flask
+ENV PYTHONUNBUFFERED=1
 
-# ── Default command ───────────────────────────────────────────────────────────
-# Override GAME and other vars via environment variables or docker run args
-ENV GAME="One State RP"
-ENV LANDING_URL="https://example.com"
-ENV BRANDING_IMAGE="branding.png"
-ENV MAX_VIDEOS=3
-
-CMD python main.py \
-        "${GAME}" \
-        --branding "${BRANDING_IMAGE}" \
-        --landing-url "${LANDING_URL}" \
-        --max-videos "${MAX_VIDEOS}"
+# Cloud Run sets the PORT environment variable dynamically (usually 8080)
+# We use gunicorn to run the Flask app
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 web_app:app
