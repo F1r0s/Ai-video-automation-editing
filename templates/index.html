@@ -133,6 +133,7 @@
     </div>
 
     <button id="genBtn" class="gen-btn" onclick="generateVideos()">GENERATE VIDEOS</button>
+    <button id="cancelBtn" class="gen-btn" onclick="cancelGeneration()" style="display:none; background:#e53935; margin-top:5px;">CANCEL</button>
     <div id="loading" class="loader"></div>
     <p id="status"></p>
 </div>
@@ -284,6 +285,11 @@
 
         const layout = { ss_ox, ss_oy, ss_zoom, link_x: 0.5, link_y: 0.96 };
 
+        // Freeze canvas
+        canvas.getObjects().forEach(o => { o.selectable = false; o.evented = false; });
+        canvas.discardActiveObject();
+        canvas.renderAll();
+
         // Prepare FormData
         const formData = new FormData();
         formData.append('pwd', pwd);
@@ -296,17 +302,22 @@
 
         // UI Loading State
         const btn = document.getElementById('genBtn');
+        const cancelBtn = document.getElementById('cancelBtn');
         const loader = document.getElementById('loading');
         const status = document.getElementById('status');
         
         btn.disabled = true;
+        cancelBtn.style.display = 'inline-block';
         loader.style.display = 'block';
         status.innerText = "Processing in the cloud! This may take 5-10 minutes. Videos will be sent to your Telegram.";
+
+        window.abortController = new AbortController();
 
         try {
             const response = await fetch('/api/generate', {
                 method: 'POST',
-                body: formData
+                body: formData,
+                signal: window.abortController.signal
             });
             const data = await response.json();
             
@@ -318,13 +329,43 @@
                 status.style.color = "red";
             }
         } catch (e) {
-            status.innerText = "❌ Network error. But if Telegram receives the video, it worked!";
+            if (e.name === 'AbortError') {
+                status.innerText = "⏸️ Cancelled.";
+            } else {
+                status.innerText = "❌ Network error. But if Telegram receives the video, it worked!";
+            }
             status.style.color = "red";
         }
 
         btn.disabled = false;
+        cancelBtn.style.display = 'none';
         loader.style.display = 'none';
+        canvas.getObjects().forEach(o => { o.selectable = true; o.evented = true; });
     }
+
+    function cancelGeneration() {
+        if (window.abortController) {
+            window.abortController.abort();
+        }
+    }
+
+    // Show CPA Link on Canvas Live
+    let linkTextObj = null;
+    document.getElementById('landing_url').addEventListener('input', function(e) {
+        const urlStr = e.target.value;
+        if (!linkTextObj) {
+            linkTextObj = new fabric.Text(urlStr, {
+                fill: '#64dcff', backgroundColor: 'rgba(0,0,0,0.8)', fontSize: 14, fontWeight: 'normal',
+                left: 135, top: 460, originX: 'center', originY: 'center', padding: 5,
+                selectable: false, evented: false
+            });
+            canvas.add(linkTextObj);
+        } else {
+            linkTextObj.set({text: urlStr});
+            canvas.renderAll();
+        }
+        canvas.bringToFront(linkTextObj);
+    });
 </script>
 
 </body>
