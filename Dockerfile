@@ -24,6 +24,6 @@ COPY . .
 # Set environment variables for Flask
 ENV PYTHONUNBUFFERED=1
 
-# Cloud Run sets the PORT environment variable dynamically (usually 8080)
+# Hugging Face Spaces require the app to run on port 7860
 # We use gunicorn to run the Flask app
-CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 web_app:app
+CMD exec gunicorn --bind 0.0.0.0:7860 --workers 1 --threads 8 --timeout 0 web_app:app
