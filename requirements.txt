@@ -4,46 +4,26 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Core ──────────────────────────────────────────────────────────────────────
-python-dotenv>=1.0.0        # .env file loading
 
 # ── Video Download ────────────────────────────────────────────────────────────
-yt-dlp>=2024.3.10           # YouTube & TikTok scraping / download
 
 # ── Video Editing ─────────────────────────────────────────────────────────────
-moviepy==1.0.3              # Video composition, trimming, overlay
-Pillow>=10.0.0              # Image manipulation (branding overlay)
-ffmpeg-python>=0.2.0        # Low-level ffmpeg bindings (used by moviepy)
 
 # ── Speech-to-Text (captions) ─────────────────────────────────────────────────
-openai-whisper>=20231117    # Local Whisper transcription model
-torch>=2.0.0                # Required by Whisper (CPU mode fine)
 
 # ── Text-to-Speech (voiceover) ────────────────────────────────────────────────
-elevenlabs>=1.1.2           # ElevenLabs AI TTS (premium voices)
-gTTS>=2.5.0                 # Google TTS fallback (free, no API key)
 
 # ── HTTP / API Clients ────────────────────────────────────────────────────────
-requests>=2.31.0
-urllib3>=2.0.0
 
 # ── YouTube Upload ────────────────────────────────────────────────────────────
-google-api-python-client>=2.120.0
-google-auth>=2.29.0
-google-auth-oauthlib>=1.2.0
-google-auth-httplib2>=0.2.0
 
 # ── X (Twitter) Upload ────────────────────────────────────────────────────────
-tweepy>=4.14.0
 
 # ── Browser Automation (Instagram / TikTok fallback) ─────────────────────────
-playwright>=1.43.0
 # After install, run: playwright install chromium
 
 # ── Scheduling (cloud cron) ───────────────────────────────────────────────────
-schedule>=1.2.1             # Pure-Python scheduler (optional, for cron-less envs)
 
 # -- Web App -----------------------------------------------------------------
-Flask>=3.0.0
-gunicorn>=21.0.0
-Werkzeug>=3.0.0
 
+duckduckgo-search>=6.0.0

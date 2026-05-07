@@ -85,35 +85,49 @@ class VideoScraper:
         log.info(f"  YouTube Shorts: found {len(all_items)} result(s)")
         return all_items
 
+    def _search_duckduckgo(self, d_query: str, max_results: int) -> list[dict]:
+        """Search DuckDuckGo for URLs, then use yt-dlp to extract metadata."""
+        try:
+            from duckduckgo_search import DDGS
+        except ImportError:
+            log.warning("duckduckgo_search not installed.")
+            return []
+            
+        items = []
+        try:
+            with DDGS() as ddgs:
+                results = list(ddgs.text(d_query, max_results=max_results))
+                for r in results:
+                    url = r.get("href")
+                    if url:
+                        meta_list = self._run_ytdlp_search(url, 1)
+                        if meta_list:
+                            items.extend(meta_list)
+        except Exception as e:
+            log.error(f"DDGS error: {e}")
+        return items
+
     def _search_tiktok(self, query: str, max_results: int) -> list[dict]:
-        """Search TikTok for vertical gameplay videos."""
-        search_url = f"https://www.tiktok.com/search?q={query.replace(' ', '+')}"
-        items = self._run_ytdlp_search(search_url, max_results)
+        """Search TikTok for vertical gameplay videos via DuckDuckGo."""
+        items = self._search_duckduckgo(f"site:tiktok.com {query} gameplay", max_results)
         log.info(f"  TikTok: found {len(items)} result(s)")
         return items
 
     def _search_instagram_reels(self, query: str, max_results: int) -> list[dict]:
-        """Search Instagram Reels via hashtag page."""
-        # yt-dlp can scrape Instagram hashtag pages
-        tag = query.replace(" ", "").replace("#", "")
-        search_url = f"https://www.instagram.com/explore/tags/{tag}/"
-        items = self._run_ytdlp_search(search_url, max_results)
+        """Search Instagram Reels via DuckDuckGo."""
+        items = self._search_duckduckgo(f"site:instagram.com/reel/ {query} gameplay", max_results)
         log.info(f"  Instagram Reels: found {len(items)} result(s)")
         return items
 
     def _search_facebook_reels(self, query: str, max_results: int) -> list[dict]:
-        """Search Facebook Reels."""
-        search_url = f"https://www.facebook.com/reel/?q={query.replace(' ', '+')}"
-        items = self._run_ytdlp_search(search_url, max_results)
+        """Search Facebook Reels via DuckDuckGo."""
+        items = self._search_duckduckgo(f"site:facebook.com/reel/ {query} gameplay", max_results)
         log.info(f"  Facebook Reels: found {len(items)} result(s)")
         return items
 
     def _search_x(self, query: str, max_results: int) -> list[dict]:
-        """Search X (Twitter) for video posts."""
-        # yt-dlp doesn't have native X search, but can download individual posts
-        # We use YouTube as fallback for broader coverage
-        search_url = f"ytsearch{max_results}:{query} mod gameplay vertical"
-        items = self._run_ytdlp_search(search_url, max_results)
+        """Search X (Twitter) for video posts via DuckDuckGo."""
+        items = self._search_duckduckgo(f"site:twitter.com {query} video", max_results)
         log.info(f"  X/Additional: found {len(items)} result(s)")
         return items
 
