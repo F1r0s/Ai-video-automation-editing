@@ -403,7 +403,13 @@ class VideoProcessor:
         # 8. Export
         _progress(90, "Rendering final video...")
         stem = Path(input_path).stem
-        out_dir = Path(input_path).parent
+        
+        # Save to EDITED_DIR instead of raw dir
+        from config import Config
+        cfg = Config()
+        out_dir = Path(cfg.EDITED_DIR)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        
         out_path = str(out_dir / f"{stem}_promo.mp4")
 
         clip.write_videofile(

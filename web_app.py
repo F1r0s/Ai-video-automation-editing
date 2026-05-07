@@ -61,7 +61,14 @@ def get_status():
 @app.route('/output/<filename>')
 def serve_output(filename):
     cfg = Config()
-    return send_from_directory(str(cfg.RAW_DIR), filename)
+    # Check edited dir first, fallback to raw dir for thumbnails
+    edited_path = Path(cfg.EDITED_DIR) / filename
+    raw_path = Path(cfg.RAW_DIR) / filename
+    if edited_path.exists():
+        return send_from_directory(str(cfg.EDITED_DIR), filename)
+    elif raw_path.exists():
+        return send_from_directory(str(cfg.RAW_DIR), filename)
+    return "Not Found", 404
 
 @app.route('/api/verify', methods=['POST'])
 def verify_pwd():
