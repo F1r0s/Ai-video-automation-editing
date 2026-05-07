@@ -9,6 +9,16 @@ from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent / ".env")
+
+# --- Cloud Environment Setup ---
+# If running on a cloud service like Hugging Face, write the cookies to a file
+# securely from the environment variables to bypass yt-dlp bot blocking.
+cookies_content = os.getenv("COOKIES_TXT_CONTENT")
+if cookies_content:
+    with open("cookies.txt", "w", encoding="utf-8") as f:
+        f.write(cookies_content)
+    os.environ["YT_DLP_COOKIES"] = "cookies.txt"
+
 from video_processor import VideoProcessor
 from scraper import VideoScraper
 from config import Config
