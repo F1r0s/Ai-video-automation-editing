@@ -22,7 +22,7 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # YOUR HUGGING FACE URL GOES HERE!
 # Example: "https://your-username-ai-video-studio.hf.space"
-CLOUD_API_URL = os.getenv("CLOUD_API_URL", "https://replace-me-with-your-huggingface-url.hf.space")
+CLOUD_API_URL = os.getenv("CLOUD_API_URL", "https://higma55-video-automation-bot.hf.space")
 
 
 # Simple global status just like the main app
