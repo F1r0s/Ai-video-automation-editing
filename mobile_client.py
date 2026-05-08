@@ -233,10 +233,29 @@ MOBILE_HTML = """<!DOCTYPE html>
     <option value="0.25">Top High</option>
     <option value="0.85">Very Bottom</option>
   </select>
-  <label>Channel Screenshot (optional)</label>
-  <input id="screenshot" type="file" accept="image/*" />
-  <button class="btn-generate" id="genBtn" onclick="generate()">⚡ GENERATE VIDEO</button>
 </div>
+
+<!-- Channel & Promo Tools -->
+<div class="card">
+  <h2>📸 Channel & Promo Tools</h2>
+  <label>Channel Screenshot (shows last 5s)</label>
+  <input id="screenshot" type="file" accept="image/*" />
+
+  <label style="margin-top:14px; color:#00e676; font-size:0.8rem;">🔗 CPA Link Bar</label>
+  <p style="font-size:0.75rem; color:#888; margin:4px 0 8px;">Your CPA link above will automatically be shown as a clickable bar on the video for the first 25 seconds.</p>
+
+  <label style="color:#00e676; font-size:0.8rem;">🏷️ Custom Text Overlay</label>
+  <input id="overlay_text" type="text" placeholder='e.g. "Download Now! 🔥"' style="margin-bottom:8px;" />
+
+  <label>Overlay Position</label>
+  <select id="overlay_pos">
+    <option value="top">Top of Video</option>
+    <option value="center">Center</option>
+    <option value="bottom">Bottom</option>
+  </select>
+</div>
+
+<button class="btn-generate" id="genBtn" onclick="generate()" style="margin-bottom:14px;">⚡ GENERATE VIDEO</button>
 
 <!-- Status -->
 <div class="card">
@@ -279,6 +298,8 @@ async function generate() {
   fd.append('url', url);
   fd.append('caption_color', document.getElementById('caption_color').value);
   fd.append('caption_pos', document.getElementById('caption_pos').value);
+  fd.append('overlay_text', document.getElementById('overlay_text').value);
+  fd.append('overlay_pos',  document.getElementById('overlay_pos').value);
   const ss = document.getElementById('screenshot').files[0];
   if (ss) fd.append('screenshot', ss);
 

@@ -217,26 +217,53 @@ class VideoScraper:
         )[:60]
         output_tmpl = str(self.cfg.RAW_DIR / f"{safe_title}_%(id)s.%(ext)s")
 
-        cmd = [
-            "yt-dlp",
-            "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-            "-o", output_tmpl,
-            "--merge-output-format", "mp4",
-            "--no-playlist",
-            "--download-sections", "*00:00:00-00:02:00"
+        # Try multiple download strategies (most compatible first for mobile/Android)
+        strategies = [
+            # Strategy 1: Best mp4 up to 720p with section cut (fastest)
+            [
+                "yt-dlp",
+                "-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best[ext=mp4]",
+                "-o", output_tmpl,
+                "--merge-output-format", "mp4",
+                "--no-playlist",
+                "--download-sections", "*00:00:00-00:02:00"
+            ],
+            # Strategy 2: Best mp4 up to 1080p, no section filter (more compatible)
+            [
+                "yt-dlp",
+                "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+                "-o", output_tmpl,
+                "--merge-output-format", "mp4",
+                "--no-playlist",
+            ],
+            # Strategy 3: Absolute simplest - just grab whatever works
+            [
+                "yt-dlp",
+                "-f", "worst[ext=mp4]/worst",
+                "-o", output_tmpl,
+                "--no-playlist",
+            ],
         ]
-        if self.cfg.YT_DLP_COOKIES:
-            cmd += ["--cookies", self.cfg.YT_DLP_COOKIES]
-        cmd.append(video_url)
 
-        log.info(f"  Downloading: {video_url[:80]}")
-        try:
-            subprocess.run(cmd, check=True, capture_output=True, timeout=600)
-        except subprocess.CalledProcessError as exc:
-            log.error(f"  Download failed: {exc.stderr.decode('utf-8', errors='replace')[:300]}")
-            return None
-        except subprocess.TimeoutExpired:
-            log.error("  Download timed out.")
+        last_error = ""
+        for i, cmd in enumerate(strategies):
+            if self.cfg.YT_DLP_COOKIES:
+                cmd += ["--cookies", self.cfg.YT_DLP_COOKIES]
+            cmd.append(video_url)
+            log.info(f"  Download attempt {i+1}/3: {video_url[:80]}")
+            try:
+                subprocess.run(cmd, check=True, capture_output=True, timeout=300)
+                log.info(f"  Strategy {i+1} succeeded!")
+                break  # Success!
+            except subprocess.CalledProcessError as exc:
+                last_error = exc.stderr.decode('utf-8', errors='replace')
+                log.warning(f"  Strategy {i+1} failed: {last_error[:200]}")
+                continue
+            except subprocess.TimeoutExpired:
+                log.warning(f"  Strategy {i+1} timed out.")
+                continue
+        else:
+            log.error(f"  All download strategies failed. Last error: {last_error[:300]}")
             return None
 
         # Find the downloaded file
