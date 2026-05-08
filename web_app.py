@@ -212,6 +212,89 @@ def generate():
         "thumb_url": thumb_url
     })
 
+@app.route('/api/cloud_process', methods=['POST'])
+def cloud_process():
+    """
+    Endpoint for the Mobile/Termux client. 
+    Receives raw video, processes it with AI, and sends to Telegram.
+    """
+    game = request.form.get('game', '').strip()
+    url = request.form.get('url', '').strip()
+    overlays_json = request.form.get('overlays', '[]')
+    layout_json = request.form.get('layout', '{}')
+    cap_color = request.form.get('caption_color', 'yellow')
+    cap_pos = float(request.form.get('caption_pos', 0.70))
+    
+    if 'video' not in request.files:
+        return jsonify({"error": "No video file provided"}), 400
+        
+    video_file = request.files['video']
+    screenshot_file = request.files.get('screenshot')
+    
+    # Save uploaded raw video
+    raw_path = Path(app.config['UPLOAD_FOLDER']) / secure_filename(video_file.filename or 'mobile_upload.mp4')
+    video_file.save(str(raw_path))
+    
+    # Save screenshot if provided
+    screenshot_path = str(Path(app.config['UPLOAD_FOLDER']) / "mobile_ss.png")
+    if screenshot_file:
+        screenshot_file.save(screenshot_path)
+    
+    # Process Video
+    processor = VideoProcessor(
+        elevenlabs_key=os.getenv("ELEVENLABS_API_KEY", ""),
+        elevenlabs_voice_id=os.getenv("ELEVENLABS_VOICE_ID", "")
+    )
+    
+    try:
+        out_path = processor.process(
+            input_path=str(raw_path),
+            game_name=game,
+            channel_screenshot=screenshot_path if screenshot_file else "",
+            landing_url=url,
+            progress_callback=lambda p, m: log.info(f"Cloud Process [{p}%]: {m}"),
+            overlay_data=json.loads(overlays_json),
+            layout=json.loads(layout_json),
+            caption_color=cap_color,
+            caption_pos=cap_pos
+        )
+    except Exception as e:
+        log.error(f"Cloud processing crashed: {e}")
+        return jsonify({"error": str(e)}), 500
+        
+    # Send to Telegram
+    tg_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    tg_chat = os.getenv("TELEGRAM_CHAT_ID", "")
+    if tg_token and tg_chat and out_path:
+        import requests as req
+        try:
+            with open(out_path, "rb") as f:
+                r = req.post(
+                    f"https://api.telegram.org/bot{tg_token}/sendVideo",
+                    data={"chat_id": tg_chat, "caption": f"Cloud Render Complete: {game}"},
+                    files={"video": f},
+                    timeout=300
+                )
+                if not r.ok:
+                    log.error(f"Telegram Delivery Failed: {r.text}")
+        except Exception as e:
+            log.error(f"Telegram error: {e}")
+            
+    # Generate SEO
+    seo_data_dict = {}
+    try:
+        from seo import SEOGenerator
+        seo_gen = SEOGenerator()
+        seo_pkgs = seo_gen.generate(game)
+        seo_data_dict = {k: {"title": v.title, "desc": v.description, "tags": v.hashtags} for k, v in seo_pkgs.items()}
+    except: pass
+    
+    return jsonify({
+        "success": True,
+        "video_path": str(out_path),
+        "seo": seo_data_dict
+    })
+
 if __name__ == '__main__':
     # Run as a Desktop App locally
     import threading
