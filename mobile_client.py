@@ -8,9 +8,10 @@ from pathlib import Path
 from flask import Flask, render_template_string, request, jsonify, send_file
 from werkzeug.utils import secure_filename
 import requests
+from dotenv import load_dotenv
 
-from scraper import VideoScraper
-from config import Config
+# Load .env FIRST before reading any environment variables
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("mobile_client")
@@ -394,6 +395,8 @@ def generate():
         screenshot_file.save(screenshot_path)
 
     # 1. Scrape with mobile IP
+    from scraper import VideoScraper
+    from config import Config
     cfg     = Config()
     scraper = VideoScraper(config=cfg)
     update_status(f"🌐 Searching for: {game}...")
