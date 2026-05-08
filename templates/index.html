@@ -138,12 +138,18 @@
         </select>
 
         <label>Caption Position</label>
-        <select id="caption_pos" style="width:100%; padding:8px; margin-bottom:20px; background:var(--input); color:white; border:none; border-radius:4px;">
-            <option value="0.70">Center Low (Default)</option>
-            <option value="0.50">Dead Center</option>
-            <option value="0.25">Top High</option>
-            <option value="0.85">Very Bottom</option>
+        <select id="caption_pos" style="width:100%; padding:8px; margin-bottom:10px; background:var(--input); color:white; border:none; border-radius:4px;">
+            <option value="0.70">📍 Center Low (Default)</option>
+            <option value="0.50">📍 Dead Center</option>
+            <option value="0.25">📍 Top High</option>
+            <option value="0.85">📍 Very Bottom</option>
         </select>
+
+        <label>Landing Link Color</label>
+        <div style="display:flex; gap:8px; margin-bottom:10px;">
+            <input type="color" id="landing_link_color" value="#64dcff" style="width:50px; height:36px; border:none; border-radius:4px; cursor:pointer;">
+            <input type="text" id="landing_link_color_text" value="#64dcff" style="flex:1; padding:8px; background:var(--input); color:white; border:1px solid var(--accent); border-radius:4px;" placeholder="e.g. #FF0000 or hex color">
+        </div>
 
         <button id="genBtn" class="gen-btn" onclick="generateVideos()">GENERATE VIDEOS</button>
         <button id="cancelBtn" class="gen-btn" onclick="cancelGeneration()" style="display:none; background:#e53935; margin-top:5px;">CANCEL</button>
@@ -276,6 +282,7 @@
         const fileInput = document.getElementById('screenshot').files[0];
         const cap_color = document.getElementById('caption_color').value;
         const cap_pos = document.getElementById('caption_pos').value;
+        const link_color = document.getElementById('landing_link_color').value;
 
         if (!game) return alert("Enter game name!");
         if (!url) return alert("Enter landing page link!");
@@ -326,6 +333,7 @@
         formData.append('max', max_v);
         formData.append('caption_color', cap_color);
         formData.append('caption_pos', cap_pos);
+        formData.append('landing_link_color', link_color);
         formData.append('screenshot', fileInput);
         formData.append('overlays', JSON.stringify(overlays));
         formData.append('layout', JSON.stringify(layout));
@@ -442,6 +450,30 @@
         }
         canvas.bringToFront(linkTextObj);
     });
+
+    // Sync color picker and text input
+    const colorPicker = document.getElementById('landing_link_color');
+    const colorText = document.getElementById('landing_link_color_text');
+    
+    colorPicker.addEventListener('input', function(e) {
+        colorText.value = e.target.value;
+        if (linkTextObj) {
+            linkTextObj.set({fill: e.target.value});
+            canvas.renderAll();
+        }
+    });
+    
+    colorText.addEventListener('input', function(e) {
+        const val = e.target.value.trim();
+        if (/^#[0-9A-Fa-f]{6}$/.test(val)) {
+            colorPicker.value = val;
+            if (linkTextObj) {
+                linkTextObj.set({fill: val});
+                canvas.renderAll();
+            }
+        }
+    });
+
 </script>
 
 </body>

@@ -45,6 +45,13 @@ TARGET_H = 1920
 MAX_DUR  = 30
 FONT_PATH = Path("assets/Montserrat-Bold.ttf")
 
+# Sticker asset paths
+STICKER_ASSETS = {
+    "circle": Path("assets/circle.gif"),
+    "arrow": Path("assets/arrow.gif"),
+    "finger": Path("assets/Hand pointing finger.gif"),
+}
+
 
 class VideoProcessor:
     """Processes a single video into a CPA promo clip."""
@@ -53,6 +60,21 @@ class VideoProcessor:
         self.el_key      = elevenlabs_key
         self.el_voice_id = elevenlabs_voice_id or "EXAVITQu4vr4xnSDxMaL"
         self._whisper     = None
+        self.sticker_cache = {}  # Cache loaded sticker assets
+        self._load_sticker_assets()
+
+    def _load_sticker_assets(self):
+        """Pre-load sticker assets from disk with transparency preserved."""
+        for kind, asset_path in STICKER_ASSETS.items():
+            if asset_path.exists():
+                try:
+                    img = Image.open(str(asset_path)).convert("RGBA")
+                    self.sticker_cache[kind] = img
+                    log.info(f"Loaded sticker asset: {kind} ({asset_path})")
+                except Exception as e:
+                    log.warning(f"Failed to load sticker {kind}: {e}")
+            else:
+                log.warning(f"Sticker asset not found: {asset_path}")
 
     # ── TTS ────────────────────────────────────────────────────────────────────
 
@@ -191,7 +213,7 @@ class VideoProcessor:
 
     # ── CPA Link Bar (shown during gameplay, first 25 seconds) ─────────────────
 
-    def _make_cpa_bar(self, landing_url: str, duration: float) -> ImageClip:
+    def _make_cpa_bar(self, landing_url: str, duration: float, link_color: str = "#64dcff") -> ImageClip:
         """Semi-transparent bar at the bottom with the CPA link."""
         bar_h = 130
         img = Image.new("RGBA", (TARGET_W, bar_h), (0, 0, 0, 210))
@@ -209,10 +231,17 @@ class VideoProcessor:
         tw = bbox[2] - bbox[0]
         draw.text(((TARGET_W - tw) // 2, 15), cta, fill=(0, 255, 100, 255), font=font_big)
 
-        # URL text
+        # URL text - convert hex color to RGB tuple
+        try:
+            from PIL import ImageColor
+            link_rgb = ImageColor.getrgb(link_color)
+            link_fill = link_rgb + (255,)  # add alpha
+        except:
+            link_fill = (100, 200, 255, 255)  # fallback cyan
+        
         bbox2 = draw.textbbox((0, 0), landing_url, font=font_small)
         tw2 = bbox2[2] - bbox2[0]
-        draw.text(((TARGET_W - tw2) // 2, 70), landing_url, fill=(100, 200, 255, 255), font=font_small)
+        draw.text(((TARGET_W - tw2) // 2, 70), landing_url, fill=link_fill, font=font_small)
 
         tmp = Path(tempfile.mktemp(suffix=".png"))
         img.save(str(tmp))
@@ -226,7 +255,7 @@ class VideoProcessor:
 
     def _make_channel_overlay(self, screenshot_path: str, landing_url: str,
                                duration: float, overlay_data: list = None,
-                               layout: dict = None) -> Optional[CompositeVideoClip]:
+                               layout: dict = None, link_color: str = "#64dcff") -> Optional[CompositeVideoClip]:
         """Animated channel overlay with user-positioned screenshot, link, and stickers."""
         if not screenshot_path or not Path(screenshot_path).exists():
             return None
@@ -279,26 +308,34 @@ class VideoProcessor:
                 cy = int(item["cy"] * TARGET_H)
                 sz = item.get("size", 1.0)
 
-                if item["kind"] == "circle":
-                    rx = int(item.get("rx", 0.07) * TARGET_W * pulse * sz)
-                    ry = int(item.get("ry", 0.04) * TARGET_H * pulse * sz)
-                    for th in range(6):
-                        draw.ellipse([cx-rx-th, cy-ry-th, cx+rx+th, cy+ry+th],
-                                     outline=(255, 0, 0, 255))
+                if item["kind"] == "circle" and "circle" in self.sticker_cache:
+                    # Render circle asset with animation
+                    circle_img = self.sticker_cache["circle"]
+                    scaled_sz = int(80 * sz * pulse)
+                    scaled_circle = circle_img.resize((scaled_sz, scaled_sz), Image.LANCZOS)
+                    paste_x = cx - scaled_sz // 2
+                    paste_y = cy - scaled_sz // 2
+                    bg.paste(scaled_circle, (paste_x, paste_y), scaled_circle)
 
-                elif item["kind"] == "arrow":
+                elif item["kind"] == "arrow" and "arrow" in self.sticker_cache:
+                    # Render arrow asset with bounce animation
+                    arrow_img = self.sticker_cache["arrow"]
                     ay = cy + bounce
-                    r = int(50 * sz)
-                    h = int(80 * sz)
-                    draw.polygon([(cx, ay-h), (cx-r, ay+int(h*0.5)),
-                                  (cx+r, ay+int(h*0.5))], fill=(255, 0, 0))
+                    scaled_sz = int(80 * sz)
+                    scaled_arrow = arrow_img.resize((scaled_sz, int(scaled_sz * 1.3)), Image.LANCZOS)
+                    paste_x = cx - scaled_sz // 2
+                    paste_y = ay - int(scaled_sz * 1.3) // 2
+                    bg.paste(scaled_arrow, (paste_x, paste_y), scaled_arrow)
 
-                elif item["kind"] == "finger":
+                elif item["kind"] == "finger" and "finger" in self.sticker_cache:
+                    # Render finger asset with bounce animation
+                    finger_img = self.sticker_cache["finger"]
                     fy = cy + bounce
-                    try:
-                        ff = ImageFont.truetype("seguiemj.ttf", int(80 * sz))
-                    except: ff = sticker_font
-                    draw.text((cx-40, fy-40), "\u261d", fill=(255,0,0), font=ff)
+                    scaled_sz = int(100 * sz)
+                    scaled_finger = finger_img.resize((scaled_sz, scaled_sz), Image.LANCZOS)
+                    paste_x = cx - scaled_sz // 2
+                    paste_y = fy - scaled_sz // 2
+                    bg.paste(scaled_finger, (paste_x, paste_y), scaled_finger)
 
                 elif item["kind"] == "text":
                     txt = item.get("text", "Click Here!")
@@ -316,10 +353,19 @@ class VideoProcessor:
             # Link text
             lx = int(link_x * TARGET_W)
             ly = int(link_y * TARGET_H)
+            
+            # Convert hex color to RGB
+            try:
+                from PIL import ImageColor
+                link_rgb = ImageColor.getrgb(link_color)
+                link_fill = link_rgb + (255,)  # add alpha
+            except:
+                link_fill = (100, 220, 255, 255)  # fallback cyan
+            
             bb = draw.textbbox((0,0), landing_url, font=link_font)
             ltw = bb[2] - bb[0]
             draw.rectangle([(lx-ltw//2-8, ly-14), (lx+ltw//2+8, ly+14)], fill=(0,0,0,200))
-            draw.text((lx-ltw//2, ly-10), landing_url, fill=(100,220,255), font=link_font)
+            draw.text((lx-ltw//2, ly-10), landing_url, fill=link_fill, font=link_font)
 
             return np.array(bg.convert("RGB"))
 
@@ -350,6 +396,7 @@ class VideoProcessor:
         layout: dict = None,
         caption_color: str = "yellow",
         caption_pos: float = 0.70,
+        landing_link_color: str = "#64dcff",
     ) -> str:
         """
         Full pipeline for one video file.
@@ -411,7 +458,7 @@ class VideoProcessor:
         _progress(70, "Adding CPA link bar...")
         try:
             cpa_duration = max(1, clip.duration - 5)  # stop 5s before end
-            cpa_bar = self._make_cpa_bar(landing_url, cpa_duration)
+            cpa_bar = self._make_cpa_bar(landing_url, cpa_duration, link_color=landing_link_color)
             clip = CompositeVideoClip([clip, cpa_bar])
         except Exception as e:
             log.warning(f"CPA bar failed: {e}")
@@ -422,7 +469,7 @@ class VideoProcessor:
             overlay_dur = min(5, clip.duration)
             overlay = self._make_channel_overlay(
                 channel_screenshot, landing_url, overlay_dur,
-                overlay_data or [], layout or {}
+                overlay_data or [], layout or {}, link_color=landing_link_color
             )
             if overlay:
                 overlay = overlay.set_start(clip.duration - overlay_dur)

@@ -5,7 +5,7 @@ Left panel: form fields
 Right panel: Live preview canvas with 4-corner scale/move for all elements
 """
 
-import os, logging, threading, time, math
+import os, logging, threading, time, math, json, requests
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from pathlib import Path
@@ -13,7 +13,6 @@ from PIL import Image, ImageTk, ImageDraw, ImageFont
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent / ".env")
-from video_processor import VideoProcessor
 from scraper import VideoScraper
 from config import Config
 
@@ -30,6 +29,8 @@ VID_W, VID_H = 1080, 1920
 
 class CanvasItem:
     """Represents any element on the canvas (screenshot, link, sticker)."""
+    _GIF_CACHE = {}
+
     def __init__(self, editor, kind, x, y, text="", path=""):
         self.editor = editor
         self.canvas = editor.canvas
@@ -43,10 +44,23 @@ class CanvasItem:
         self.ids = []
         self.tk_img = None
         self.pil_img = None
-        
+        self._gif_frames = None
+        self._gif_durations = None
+        self._gif_index = 0
+        self._anim_after_id = None
+
         if kind == "screenshot" and path:
             self.pil_img = Image.open(path).convert("RGBA")
-            
+
+        # Preload sticker GIF frames when available
+        if kind in ("circle", "arrow", "finger"):
+            try:
+                self._load_gif_frames()
+            except Exception:
+                self._gif_frames = None
+                self._gif_durations = None
+                self._gif_index = 0
+
         self.draw()
 
     def draw(self):
@@ -70,6 +84,7 @@ class CanvasItem:
         elif self.kind == "link":
             if not self.text: return
             fnt = ("Arial", max(8, int(13 * s)))
+            link_color = getattr(self.editor, "link_color", "#64dcff")
             # Dummy text to get bbox
             t_id = self.canvas.create_text(x, y, text=self.text, font=fnt)
             bbox = self.canvas.bbox(t_id)
@@ -79,20 +94,34 @@ class CanvasItem:
                 bg_id = self.canvas.create_rectangle(bbox[0]-pad, bbox[1]-pad, bbox[2]+pad, bbox[3]+pad,
                                                      fill="black", stipple="gray50", outline="")
                 self.ids.append(bg_id)
-            self.ids.append(self.canvas.create_text(x, y, text=self.text, fill="#64dcff", font=fnt))
+            self.ids.append(self.canvas.create_text(x, y, text=self.text, fill=link_color, font=fnt))
             
-        elif self.kind == "circle":
-            r = int(40 * s)
-            self.ids.append(self.canvas.create_oval(x-r, y-r, x+r, y+r, outline="red", width=max(1, int(3*s))))
-            
-        elif self.kind == "arrow":
-            r = int(20 * s)
-            self.ids.append(self.canvas.create_polygon(x, y-int(25*s), x-r, y+int(12*s), x+r, y+int(12*s),
-                                                       outline="red", fill="red", width=max(1, int(2*s))))
-            
-        elif self.kind == "finger":
-            fs = max(8, int(36 * s))
-            self.ids.append(self.canvas.create_text(x, y, text="\u261d", fill="red", font=("Segoe UI Emoji", fs)))
+        elif self.kind in ("circle", "arrow", "finger"):
+            # If GIF frames loaded, draw the current frame as image
+            if self._gif_frames:
+                # Resize current PIL frame according to scale
+                frame = self._gif_frames[self._gif_index]
+                # Determine target size based on a base size per kind
+                base_sizes = {"circle": (80, 80), "arrow": (80, 80), "finger": (72, 72)}
+                bw, bh = base_sizes.get(self.kind, (64, 64))
+                tw, th = max(1, int(bw * s)), max(1, int(bh * s))
+                resized = frame.resize((tw, th), Image.LANCZOS)
+                self.tk_img = ImageTk.PhotoImage(resized)
+                self.ids.append(self.canvas.create_image(x, y, image=self.tk_img, anchor="center"))
+                # Start animation loop
+                self._start_animation()
+            else:
+                # Fallback to vector shapes when GIF not available
+                if self.kind == "circle":
+                    r = int(40 * s)
+                    self.ids.append(self.canvas.create_oval(x-r, y-r, x+r, y+r, outline="red", width=max(1, int(3*s))))
+                elif self.kind == "arrow":
+                    r = int(20 * s)
+                    self.ids.append(self.canvas.create_polygon(x, y-int(25*s), x-r, y+int(12*s), x+r, y+int(12*s),
+                                                               outline="red", fill="red", width=max(1, int(2*s))))
+                elif self.kind == "finger":
+                    fs = max(8, int(36 * s))
+                    self.ids.append(self.canvas.create_text(x, y, text="\u261d", fill="red", font=("Segoe UI Emoji", fs)))
             
         elif self.kind == "text":
             fs = max(8, int(13 * s))
@@ -120,6 +149,109 @@ class CanvasItem:
         return (min(b[0] for b in bboxes), min(b[1] for b in bboxes),
                 max(b[2] for b in bboxes), max(b[3] for b in bboxes))
 
+    def _load_gif_frames(self):
+        from PIL import Image, ImageSequence
+        mapping = {
+            "circle": "circle.gif",
+            "arrow": "arrow.gif",
+            "finger": "Hand pointing finger.gif",
+        }
+        asset = mapping.get(self.kind)
+        if not asset:
+            return
+        p = Path("assets") / asset
+        if not p.exists():
+            return
+
+        cached = CanvasItem._GIF_CACHE.get(self.kind)
+        if cached:
+            self._gif_frames, self._gif_durations = cached
+            self._gif_index = 0
+            return
+
+        def _clean_background(frame_rgba):
+            px = frame_rgba.load()
+            w, h = frame_rgba.size
+            target = px[0, 0]
+            tolerance = 28
+
+            def close(c1, c2):
+                return all(abs(c1[i] - c2[i]) <= tolerance for i in range(3))
+
+            from collections import deque
+            queue = deque([(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)])
+            seen = set(queue)
+            while queue:
+                x, y = queue.popleft()
+                if not close(px[x, y], target):
+                    continue
+                r, g, b, a = px[x, y]
+                px[x, y] = (r, g, b, 0)
+                for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                    if 0 <= nx < w and 0 <= ny < h and (nx, ny) not in seen:
+                        seen.add((nx, ny))
+                        queue.append((nx, ny))
+            return frame_rgba
+
+        try:
+            img = Image.open(p)
+            frames = []
+            durations = []
+            for frame in ImageSequence.Iterator(img):
+                frames.append(_clean_background(frame.convert("RGBA")))
+                durations.append(frame.info.get("duration", 100))
+            if frames:
+                self._gif_frames = frames
+                self._gif_durations = durations
+                self._gif_index = 0
+                CanvasItem._GIF_CACHE[self.kind] = (frames, durations)
+        except Exception:
+            self._gif_frames = None
+            self._gif_durations = None
+
+    def _start_animation(self):
+        # Cancel existing
+        try:
+            if self._anim_after_id:
+                self.canvas.after_cancel(self._anim_after_id)
+        except Exception:
+            pass
+
+        if not self._gif_frames or not self.ids:
+            return
+
+        def _step():
+            if not self._gif_frames or not self.ids:
+                return
+            self._gif_index = (self._gif_index + 1) % len(self._gif_frames)
+            frame = self._gif_frames[self._gif_index]
+            s = self.scale
+            base_sizes = {"circle": (80, 80), "arrow": (80, 80), "finger": (72, 72)}
+            bw, bh = base_sizes.get(self.kind, (64, 64))
+            tw, th = max(1, int(bw * s)), max(1, int(bh * s))
+            resized = frame.resize((tw, th), Image.LANCZOS)
+            self.tk_img = ImageTk.PhotoImage(resized)
+            # update canvas image
+            try:
+                self.canvas.itemconfigure(self.ids[0], image=self.tk_img)
+            except Exception:
+                pass
+            # schedule next frame
+            dur = self._gif_durations[self._gif_index] if self._gif_durations else 100
+            self._anim_after_id = self.canvas.after(max(20, dur), _step)
+
+        # start
+        first_dur = self._gif_durations[0] if self._gif_durations else 100
+        self._anim_after_id = self.canvas.after(max(20, first_dur), _step)
+
+    def _stop_animation(self):
+        try:
+            if self._anim_after_id:
+                self.canvas.after_cancel(self._anim_after_id)
+                self._anim_after_id = None
+        except Exception:
+            pass
+
 
 class CanvasEditor:
     """Manages the items on the canvas, selection, moving, and 4-corner scaling."""
@@ -141,6 +273,7 @@ class CanvasEditor:
         self.canvas.bind("<Button-1>", self.on_press)
         self.canvas.bind("<B1-Motion>", self.on_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_release)
+        self.canvas.bind("<Delete>", self.on_delete_key)
 
     def add_item(self, kind, x, y, text="", path=""):
         item = CanvasItem(self, kind, x, y, text=text, path=path)
@@ -153,9 +286,15 @@ class CanvasEditor:
         return item
 
     def remove_item(self, item):
+        if hasattr(item, "_stop_animation"):
+            item._stop_animation()
         for i in item.ids: self.canvas.delete(i)
         if item in self.items: self.items.remove(item)
         if self.selected == item: self.select(None)
+
+    def delete_selected(self):
+        if self.selected:
+            self.remove_item(self.selected)
 
     def clear_stickers(self):
         stickers = [i for i in self.items if i.kind not in ("screenshot", "link")]
@@ -163,6 +302,10 @@ class CanvasEditor:
 
     def select(self, item):
         self.selected = item
+        try:
+            self.canvas.focus_set()
+        except Exception:
+            pass
         self.draw_selection()
 
     def draw_selection(self):
@@ -249,6 +392,9 @@ class CanvasEditor:
         self.drag_mode = None
         self.draw_selection()
 
+    def on_delete_key(self, _event=None):
+        self.delete_selected()
+
     def get_layout_data(self):
         # Extract screenshot layout
         ss = next((i for i in self.items if i.kind == "screenshot"), None)
@@ -297,12 +443,17 @@ class VideoAutomationApp:
         self.game_name = tk.StringVar()
         self.screenshot_path = tk.StringVar()
         self.landing_url = tk.StringVar()
+        self.landing_link_color = tk.StringVar(value="#64dcff")
         self.max_videos = tk.IntVar(value=3)
+        self.use_cloud = tk.BooleanVar(value=True)
         self.processing = False
         self.pause_event = threading.Event()
         self.pause_event.set()
 
+        self.editor = None
+
         self.landing_url.trace_add("write", lambda *_: self._update_link())
+        self.landing_link_color.trace_add("write", lambda *_: self._sync_link_color())
         self._build_ui()
 
     def _build_ui(self):
@@ -316,8 +467,50 @@ class VideoAutomationApp:
 
         self._step(left,"1","Game Name",self.game_name,entry=True)
         self._step_spin(left,"2","Number of Videos",self.max_videos)
-        self._step(left,"3","Channel Screenshot",self.screenshot_path, btn="Choose...",cmd=self._pick_ss)
+        self.screenshot_path_label = self._step(left,"3","Channel Screenshot",self.screenshot_path, btn="Choose...",cmd=self._pick_ss)
         self._step(left,"4","CPA Landing Page Link",self.landing_url,entry=True)
+
+        # Caption Settings
+        self.caption_color = tk.StringVar(value="yellow")
+        self.caption_pos = tk.DoubleVar(value=0.70)
+        
+        cap_frame = tk.Frame(left, bg=BG_CARD, highlightthickness=1, highlightbackground=BG_INPUT)
+        cap_frame.pack(fill="x", pady=3)
+        ci = tk.Frame(cap_frame, bg=BG_CARD); ci.pack(fill="x", padx=10, pady=8)
+        tk.Label(ci, text="Caption Color:", font=("Segoe UI", 9, "bold"), fg=FG_DIM, bg=BG_CARD).pack(side="left")
+        tk.OptionMenu(ci, self.caption_color, "yellow", "white", "green", "cyan").pack(side="left", padx=5)
+        tk.Label(ci, text="Position:", font=("Segoe UI", 9, "bold"), fg=FG_DIM, bg=BG_CARD).pack(side="left", padx=(10,0))
+        
+        # Caption position with friendly labels
+        cap_pos_menu = tk.OptionMenu(ci, self.caption_pos, 
+                                      0.70, 0.50, 0.25, 0.85)
+        cap_pos_menu.pack(side="left", padx=5)
+        # Override menu to show labels
+        menu = cap_pos_menu["menu"]
+        menu.delete(0, "end")
+        menu.add_command(label="📍 Center Low (Default)", command=lambda: self.caption_pos.set(0.70))
+        menu.add_command(label="📍 Dead Center", command=lambda: self.caption_pos.set(0.50))
+        menu.add_command(label="📍 Top High", command=lambda: self.caption_pos.set(0.25))
+        menu.add_command(label="📍 Very Bottom", command=lambda: self.caption_pos.set(0.85))
+
+        # Landing Link Color
+        link_frame = tk.Frame(left, bg=BG_CARD, highlightthickness=1, highlightbackground=BG_INPUT)
+        link_frame.pack(fill="x", pady=3)
+        li = tk.Frame(link_frame, bg=BG_CARD); li.pack(fill="x", padx=10, pady=8)
+        tk.Label(li, text="Link Color:", font=("Segoe UI", 9, "bold"), fg=FG_DIM, bg=BG_CARD).pack(side="left")
+        self.link_color_btn = tk.Button(li, text="  🎨  ", font=("Segoe UI", 10), bg=self.landing_link_color.get(),
+                                       relief="flat", padx=8, command=self._pick_link_color)
+        self.link_color_btn.pack(side="left", padx=5)
+        tk.Entry(li, textvariable=self.landing_link_color, font=("Segoe UI", 9), fg=ACCENT, bg=BG_INPUT, relief="flat", width=12).pack(side="left", padx=5)
+
+        # Cloud Rendering Toggle
+        cloud_frame = tk.Frame(left, bg=BG_CARD, highlightthickness=1, highlightbackground=BG_INPUT)
+        cloud_frame.pack(fill="x", pady=3)
+        ci = tk.Frame(cloud_frame, bg=BG_CARD); ci.pack(fill="x", padx=10, pady=8)
+        # Status indicator
+        tk.Label(ci, text="☁️ CLOUD RENDERING ACTIVE", font=("Segoe UI", 10, "bold"), 
+                 fg=GREEN, bg=BG_CARD).pack(side="left", padx=10)
+        self.use_cloud = tk.BooleanVar(value=True)
 
         bf = tk.Frame(left, bg=BG); bf.pack(pady=(12,6))
         self.gen_btn = tk.Button(bf, text="GENERATE", font=("Segoe UI",14,"bold"),
@@ -350,6 +543,7 @@ class VideoAutomationApp:
         self.canvas.pack()
         
         self.editor = CanvasEditor(self.canvas)
+        self.editor.link_color = self.landing_link_color.get()
         self.canvas.create_text(PV_W//2, PV_H//2, text="Choose a screenshot\nto see preview", fill=FG_DIM, font=("Segoe UI",11), justify="center", tags="ph")
 
         # Stickers toolbar
@@ -365,7 +559,12 @@ class VideoAutomationApp:
                       relief="flat", padx=6, pady=2,
                       command=lambda t=label: self.editor.add_item("text", PV_W//2, PV_H//2, text=t)).pack(side="left", padx=2)
 
-        tk.Button(right, text="Clear All Stickers", font=("Segoe UI",9), fg="#fff", bg=FG_DIM, relief="flat", padx=10, pady=2, command=self.editor.clear_stickers).pack(pady=4)
+        action_bar = tk.Frame(right, bg=BG)
+        action_bar.pack(pady=4)
+        tk.Button(action_bar, text="Delete Selected", font=("Segoe UI",9), fg="#fff", bg=RED,
+                  relief="flat", padx=10, pady=2, command=self.editor.delete_selected).pack(side="left", padx=4)
+        tk.Button(action_bar, text="Clear All Stickers", font=("Segoe UI",9), fg="#fff", bg=FG_DIM,
+                  relief="flat", padx=10, pady=2, command=self.editor.clear_stickers).pack(side="left", padx=4)
 
     def _step(self, p, n, l, v, entry=False, btn=None, cmd=None):
         c=tk.Frame(p,bg=BG_CARD,highlightthickness=1,highlightbackground=BG_INPUT)
@@ -378,8 +577,10 @@ class VideoAutomationApp:
         if entry:
             tk.Entry(r,textvariable=v,font=("Segoe UI",10),fg=FG,bg=BG_INPUT, insertbackground=FG,relief="flat",highlightthickness=1, highlightcolor=ACCENT,highlightbackground=BG_INPUT).pack(fill="x",ipady=4)
         else:
-            tk.Label(r,textvariable=v,font=("Segoe UI",9),fg=ORANGE,bg=BG_INPUT, anchor="w",padx=6,pady=3).pack(side="left",fill="x",expand=True)
+            lbl = tk.Label(r,textvariable=v,font=("Segoe UI",9),fg=ORANGE,bg=BG_INPUT, anchor="w",padx=6,pady=3)
+            lbl.pack(side="left",fill="x",expand=True)
             if btn: tk.Button(r,text=btn,font=("Segoe UI",9),fg="#fff",bg=ACCENT, relief="flat",padx=8,command=cmd).pack(side="right",padx=(6,0))
+            return lbl
 
     def _step_spin(self, p, n, l, v):
         c=tk.Frame(p,bg=BG_CARD,highlightthickness=1,highlightbackground=BG_INPUT)
@@ -410,6 +611,22 @@ class VideoAutomationApp:
             ss.scale = scale
             ss.draw()
             self._update_link()
+
+    def _pick_link_color(self):
+        from tkinter.colorchooser import askcolor
+        color = askcolor(color=self.landing_link_color.get(), title="Choose Landing Link Color")
+        if color[1]:
+            self.landing_link_color.set(color[1])
+            self.link_color_btn.configure(bg=color[1])
+            self._sync_link_color()
+
+    def _sync_link_color(self):
+        if not getattr(self, "editor", None):
+            return
+        self.editor.link_color = self.landing_link_color.get()
+        link = next((i for i in self.editor.items if i.kind == "link"), None)
+        if link:
+            link.draw()
 
     def _update_link(self):
         url = self.landing_url.get().strip()
@@ -457,11 +674,12 @@ class VideoAutomationApp:
         
         ov=self.editor.get_overlays()
         layout=self.editor.get_layout_data()
+        cloud_mode = self.use_cloud.get()
         
-        self._log(f"Starting: {g} ({len(ov)} stickers)")
-        threading.Thread(target=self._run, args=(g,c,ss,u,ov,layout), daemon=True).start()
+        self._log(f"Starting: {g} {'(Cloud Mode)' if cloud_mode else '(Local Mode)'}")
+        threading.Thread(target=self._run, args=(g,c,ss,u,ov,layout,cloud_mode), daemon=True).start()
 
-    def _run(self, game, mx, ss, url, overlays, layout):
+    def _run(self, game, mx, ss, url, overlays, layout, cloud_mode):
         cfg=Config()
         self.root.after(0,self._sts,"Searching...",ACCENT)
         self.root.after(0,self._log,f"\n[1/3] Searching: '{game} MOD gameplay'...")
@@ -471,8 +689,15 @@ class VideoAutomationApp:
             self.root.after(0,self._log,"No videos found."); self._fin(0); return
         self.root.after(0,self._log,f"  Found {len(cands)}."); self.root.after(0,self._prg,10)
         vids=cands[:mx]
-        proc=VideoProcessor(os.getenv("ELEVENLABS_API_KEY",""),os.getenv("ELEVENLABS_VOICE_ID",""))
-        done=[]
+        cloud_url = os.getenv("CLOUD_API_URL", "")
+        
+        if not cloud_url:
+            self.root.after(0, self._log, "❌ FATAL ERROR: CLOUD_API_URL not set in .env")
+            self.root.after(0, lambda: messagebox.showerror("Error", "Cloud Rendering is required. Please set CLOUD_API_URL in your .env file."))
+            self._fin(0); return
+
+        downloaded = 0
+        rendered = 0
         for i,m in enumerate(vids,1):
             self._wait()
             t=m.get("title","?")[:50]
@@ -481,34 +706,50 @@ class VideoAutomationApp:
             self.root.after(0,self._log,"  Downloading...")
             raw=scraper.download(m)
             if not raw: self.root.after(0,self._log,"  Failed."); continue
+            downloaded += 1
             self.root.after(0,self._log,f"  Got: {raw.name}"); self._wait()
-            def pg(p,msg,ii=i,tt=len(vids)):
-                self.root.after(0,self._prg,min(int(((ii-1)/tt+p/100/tt)*100),95))
-                self.root.after(0,self._log,f"  [{p}%] {msg}")
             try:
-                o=proc.process(str(raw),game,ss,url,progress_callback=pg, overlay_data=overlays, layout=layout)
-                done.append(o); self.root.after(0,self._log,f"  Saved: {o}")
+                self.root.after(0, self._log, "  Uploading to Cloud Rendering...")
+                import requests as req
+                files = {'video': open(str(raw), 'rb')}
+                if ss and os.path.exists(ss):
+                    files['screenshot'] = open(ss, 'rb')
+                data = {
+                    'game': game, 'url': url,
+                    'caption_color': self.caption_color.get(),
+                    'caption_pos': str(self.caption_pos.get()),
+                    'landing_link_color': self.landing_link_color.get(),
+                    'overlays': json.dumps(overlays),
+                    'layout': json.dumps(layout)
+                }
+                resp = req.post(f"{cloud_url}/api/cloud_process", data=data, files=files, timeout=600)
+                if resp.ok:
+                    self.root.after(0, self._log, "  ✓ Cloud Render Started! Check Telegram.")
+                    rendered += 1
+                else:
+                    self.root.after(0, self._log, f"  ✗ Cloud Error: {resp.text[:100]}")
             except Exception as e:
-                self.root.after(0,self._log,f"  ERROR: {e}")
-        tgt,tgc=os.getenv("TELEGRAM_BOT_TOKEN",""),os.getenv("TELEGRAM_CHAT_ID","")
-        if tgt and tgc and done:
-            self.root.after(0,self._log,"\n[3/3] Telegram...")
-            import requests
-            for fp in done:
-                try:
-                    with open(fp,"rb") as f:
-                        requests.post(f"https://api.telegram.org/bot{tgt}/sendVideo", data={"chat_id":tgc,"caption":Path(fp).name}, files={"video":f},timeout=300).raise_for_status()
-                    self.root.after(0,self._log,f"  Sent: {Path(fp).name}")
-                except Exception as e: self.root.after(0,self._log,f"  Error: {e}")
-        self._fin(len(done))
+                self.root.after(0, self._log, f"  ERROR: {e}")
+        # Cloud render sends to Telegram itself, so we just finish here.
+        self._fin(rendered, downloaded)
 
-    def _fin(self, c):
+    def _fin(self, rendered, downloaded=0):
         self.root.after(0,self._prg,100)
-        self.root.after(0,self._sts,f"Done! {c} video(s)." if c else "No videos.",GREEN if c else RED)
+        if rendered:
+            status = f"Done! {rendered} video(s) rendered"
+            if downloaded and downloaded != rendered:
+                status += f" from {downloaded} download(s)"
+            status += "."
+            self.root.after(0,self._sts,status,GREEN)
+        elif downloaded:
+            self.root.after(0,self._sts,f"Downloaded {downloaded} video(s), but render failed.",RED)
+        else:
+            self.root.after(0,self._sts,"No videos downloaded.",RED)
         self.root.after(0,lambda:self.gen_btn.configure(state="normal",bg=GREEN))
         self.root.after(0,lambda:self.pause_btn.configure(state="disabled",text="PAUSE",bg=ORANGE))
         self.processing=False
-        if c: self.root.after(0,lambda:messagebox.showinfo("Done",f"{c} promo(s) saved!"))
+        if rendered:
+            self.root.after(0,lambda:messagebox.showinfo("Done",f"{rendered} promo(s) rendered and sent to Telegram!"))
 
 if __name__=="__main__":
     root=tk.Tk(); VideoAutomationApp(root); root.mainloop()

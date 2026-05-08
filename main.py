@@ -124,11 +124,13 @@ def run_pipeline(game_name: str, branding_image: str, landing_url: str,
     # ── STEP 4: Telegram Notification ─────────────────────────────────────────
     if cfg.TELEGRAM_BOT_TOKEN and cfg.TELEGRAM_CHAT_ID:
         log.info("[4/4] Sending final video to Telegram...")
+        telegram_batch_start = datetime.now()
         import requests
-        for item in processed:
+        for idx, item in enumerate(processed, 1):
             video_path = item["path"]
             url = f"https://api.telegram.org/bot{cfg.TELEGRAM_BOT_TOKEN}/sendVideo"
             try:
+                telegram_send_start = datetime.now()
                 with open(video_path, "rb") as f:
                     resp = requests.post(
                         url,
@@ -137,9 +139,14 @@ def run_pipeline(game_name: str, branding_image: str, landing_url: str,
                         timeout=300
                     )
                 resp.raise_for_status()
-                log.info("  ✓ Video sent to Telegram!")
+                telegram_send_end = datetime.now()
+                send_duration = (telegram_send_end - telegram_send_start).total_seconds()
+                log.info(f"  ✓ Video {idx}/{len(processed)} sent to Telegram! [Start: {telegram_send_start.isoformat()}, Duration: {send_duration:.2f}s]")
             except Exception as e:
                 log.error(f"  ✗ Failed to send to Telegram: {e}")
+        telegram_batch_end = datetime.now()
+        total_duration = (telegram_batch_end - telegram_batch_start).total_seconds()
+        log.info(f"  Telegram batch complete: {total_duration:.2f}s total")
 
     log.info("=" * 60)
     log.info("  PIPELINE COMPLETE")

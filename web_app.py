@@ -87,6 +87,7 @@ def generate():
     max_v = int(request.form.get('max', 3))
     cap_color = request.form.get('caption_color', 'yellow')
     cap_pos = float(request.form.get('caption_pos', 0.70))
+    link_color = request.form.get('landing_link_color', '#64dcff')  # cyan default
     overlays_json = request.form.get('overlays', '[]')
     layout_json = request.form.get('layout', '{}')
 
@@ -124,15 +125,21 @@ def generate():
         update_status("Error: No videos found to scrape.")
         return jsonify({"error": "No videos found to scrape."}), 404
 
+    update_status(f"✓ Found {len(candidates)} candidate video(s). Now downloading...")
     videos = candidates[:max_v]
     processed_files = []
+    downloaded_count = 0
 
     for idx, meta in enumerate(videos, 1):
         log.info(f"Downloading video {idx}/{len(videos)}...")
-        update_status(f"Downloading raw video {idx}/{len(videos)}...")
+        update_status(f"Downloading candidate {idx}/{len(videos)}...")
         raw_path = scraper.download(meta)
         if not raw_path:
+            update_status(f"  ⚠ Download {idx} failed, skipping...")
             continue
+        
+        downloaded_count += 1
+        update_status(f"  ✓ Download {idx}/{len(videos)} succeeded. Processing...")
 
         try:
             update_status(f"Rendering video {idx}/{len(videos)}... (this takes a few minutes)")
@@ -145,7 +152,8 @@ def generate():
                 overlay_data=overlays,
                 layout=layout,
                 caption_color=cap_color,
-                caption_pos=cap_pos
+                caption_pos=cap_pos,
+                landing_link_color=link_color
             )
             processed_files.append(out_path)
             log.info(f"Processed successfully: {out_path}")
@@ -154,14 +162,17 @@ def generate():
             log.error(f"Error processing video: {e}")
 
     # 3. Send to Telegram
+    from datetime import datetime
     update_status("Sending to Telegram...")
     tg_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
     tg_chat = os.getenv("TELEGRAM_CHAT_ID", "")
     
     if tg_token and tg_chat and processed_files:
         import requests
-        for fp in processed_files:
+        tg_batch_start = datetime.now()
+        for idx, fp in enumerate(processed_files, 1):
             try:
+                tg_send_start = datetime.now()
                 with open(fp, "rb") as f:
                     r = requests.post(
                         f"https://api.telegram.org/bot{tg_token}/sendVideo",
@@ -169,12 +180,20 @@ def generate():
                         files={"video": f},
                         timeout=300
                     )
-                    if not r.ok:
+                    tg_send_end = datetime.now()
+                    send_duration = (tg_send_end - tg_send_start).total_seconds()
+                    if r.ok:
+                        log.info(f"✓ Telegram {idx}/{len(processed_files)} sent [{tg_send_start.isoformat()}] - Duration: {send_duration:.2f}s")
+                        update_status(f"✓ Video {idx}/{len(processed_files)} sent to Telegram [{tg_send_end.isoformat()}]")
+                    else:
                         log.error(f"Telegram Error: {r.text}")
-                        update_status(f"Telegram failed: {r.text}")
+                        update_status(f"✗ Telegram failed: {r.status_code}")
             except Exception as e:
                 log.error(f"Telegram error: {e}")
-                update_status(f"Telegram failed: {e}")
+                update_status(f"✗ Telegram failed: {e}")
+        tg_batch_end = datetime.now()
+        total_duration = (tg_batch_end - tg_batch_start).total_seconds()
+        log.info(f"Telegram batch complete: {total_duration:.2f}s total")
 
     update_status("Generating SEO and Thumbnail...")
     seo_data_dict = {}
@@ -199,13 +218,23 @@ def generate():
     update_status("Complete!")
     
     if not processed_files:
+        if downloaded_count:
+            return jsonify({
+                "success": False,
+                "downloaded_count": downloaded_count,
+                "processed_count": 0,
+                "error": "Videos were downloaded, but processing failed before any final video was produced. Check terminal logs."
+            }), 500
         return jsonify({
             "success": False,
+            "downloaded_count": 0,
+            "processed_count": 0,
             "error": "Pipeline failed. No videos were successfully processed. Check terminal logs."
         }), 500
         
     return jsonify({
         "success": True,
+        "downloaded_count": downloaded_count,
         "processed_count": len(processed_files),
         "video_url": f"/output/{Path(processed_files[0]).name}",
         "seo": seo_data_dict,
@@ -224,6 +253,7 @@ def cloud_process():
     layout_json = request.form.get('layout', '{}')
     cap_color = request.form.get('caption_color', 'yellow')
     cap_pos = float(request.form.get('caption_pos', 0.70))
+    link_color = request.form.get('landing_link_color', '#64dcff')  # cyan default
     
     if 'video' not in request.files:
         return jsonify({"error": "No video file provided"}), 400
@@ -256,7 +286,8 @@ def cloud_process():
             overlay_data=json.loads(overlays_json),
             layout=json.loads(layout_json),
             caption_color=cap_color,
-            caption_pos=cap_pos
+            caption_pos=cap_pos,
+            landing_link_color=link_color
         )
     except Exception as e:
         log.error(f"Cloud processing crashed: {e}")
@@ -267,6 +298,8 @@ def cloud_process():
     tg_chat = os.getenv("TELEGRAM_CHAT_ID", "")
     if tg_token and tg_chat and out_path:
         import requests as req
+        from datetime import datetime
+        tg_send_start = datetime.now()
         try:
             with open(out_path, "rb") as f:
                 r = req.post(
@@ -275,10 +308,14 @@ def cloud_process():
                     files={"video": f},
                     timeout=300
                 )
-                if not r.ok:
-                    log.error(f"Telegram Delivery Failed: {r.text}")
+                tg_send_end = datetime.now()
+                send_duration = (tg_send_end - tg_send_start).total_seconds()
+                if r.ok:
+                    log.info(f"✓ Cloud Render sent to Telegram [{tg_send_start.isoformat()}] - HTTP {r.status_code} - Duration: {send_duration:.2f}s")
+                else:
+                    log.error(f"✗ Telegram Delivery Failed: {r.status_code} - {r.text}")
         except Exception as e:
-            log.error(f"Telegram error: {e}")
+            log.error(f"✗ Telegram error: {e}")
             
     # Generate SEO
     seo_data_dict = {}

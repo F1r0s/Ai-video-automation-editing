@@ -31,7 +31,12 @@ from moviepy.editor import (
 )
 from moviepy.video.fx.all import crop
 
-import whisper                      # openai-whisper
+try:
+    import whisper                      # openai-whisper
+    _HAS_WHISPER = True
+except Exception:
+    whisper = None
+    _HAS_WHISPER = False
 from gtts import gTTS               # fallback TTS
 
 from config import Config
@@ -53,6 +58,10 @@ class VideoEditor:
     # ── Private helpers ───────────────────────────────────────────────────────
 
     def _load_whisper(self):
+        if not _HAS_WHISPER:
+            log.info("  Whisper not installed; skipping transcription.")
+            return None
+
         if self._whisper_model is None:
             log.info("  Loading Whisper model (small)…")
             self._whisper_model = whisper.load_model("small")
@@ -111,7 +120,10 @@ class VideoEditor:
         Transcribe audio using Whisper.
         Returns list of {start, end, text} dicts.
         """
-        model  = self._load_whisper()
+        model = self._load_whisper()
+        if model is None:
+            return []
+
         result = model.transcribe(str(video_path), language="en", fp16=False)
         return result.get("segments", [])
 
