@@ -5,8 +5,12 @@ cookies.txt
 *.pkl
 *.pickle
 
-# ── Downloaded media ───────────────────────────────────────────────────────
+# ── Downloaded media / raw video files ────────────────────────────────────
 downloads/
+*.mp4
+*.mkv
+*.avi
+*.mov
 
 # ── Runtime logs ──────────────────────────────────────────────────────────
 logs/
