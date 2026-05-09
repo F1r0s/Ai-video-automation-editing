@@ -261,12 +261,8 @@ def generate():
             "error": "Pipeline failed. No videos were successfully processed. Check terminal logs."
         }), 500
 
-    import threading
-    threading.Thread(
-        target=_send_videos_to_telegram,
-        args=(processed_files.copy(), "Promo ready"),
-        daemon=True,
-    ).start()
+    log.info("Sending to Telegram synchronously...")
+    _send_videos_to_telegram(processed_files.copy(), "Promo ready")
 
     video_1080p = str(processed_files[0])
     video_720p = _make_720p_copy(video_1080p)
@@ -337,13 +333,9 @@ def cloud_process():
         log.error(f"Cloud processing crashed: {e}")
         return jsonify({"error": str(e)}), 500
         
-    import threading
     if out_path:
-        threading.Thread(
-            target=_send_videos_to_telegram,
-            args=([out_path], "Cloud Render Complete"),
-            daemon=True,
-        ).start()
+        log.info("Sending to Telegram synchronously...")
+        _send_videos_to_telegram([out_path], "Cloud Render Complete")
 
     video_1080p = str(out_path)
     video_720p = _make_720p_copy(video_1080p)
