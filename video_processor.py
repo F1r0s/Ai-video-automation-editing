@@ -55,9 +55,9 @@ if not FONT_PATH.exists():
 
 # Sticker asset paths
 STICKER_ASSETS = {
-    "circle": ASSETS_DIR / "circle.gif",
-    "arrow": ASSETS_DIR / "arrow.gif",
-    "finger": ASSETS_DIR / "Hand pointing finger.gif",
+    "circle": ASSETS_DIR / "circle gif.webp",
+    "arrow": ASSETS_DIR / "arrow gif.webp",
+    "finger": ASSETS_DIR / "Hand pointing finger.webp",
 }
 
 
@@ -161,20 +161,36 @@ class VideoProcessor:
         """
         Generate a LONG voiceover script that fills ~30 seconds.
         """
-        hook = (
-            f"Wait. Are you still playing {game_name} the normal way? "
-            f"You are missing out on the best mod of twenty twenty five. "
-            f"This mod gives you unlimited money, unlimited gems, "
-            f"and every single resource completely for free. "
-            f"No root needed. No jailbreak. Works on Android and iPhone. "
-            f"And the best part? There is absolutely no ban. "
-            f"I tested this myself and it works perfectly. "
-            f"The link is right here on screen. "
-            f"Tap it right now before they patch it. "
-            f"Also make sure to subscribe to my channel "
-            f"so you never miss the next working mod. "
-            f"Go ahead. Download it now. You will not regret it."
-        )
+        gn_lower = game_name.lower()
+        if "mod" in gn_lower or "hack" in gn_lower or "unlimited" in gn_lower:
+            hook = (
+                f"Wait. Are you still playing {game_name} the normal way? "
+                f"You are missing out on the best mod of twenty twenty five. "
+                f"This gives you unlimited money, unlimited gems, "
+                f"and every single resource completely for free. "
+                f"No root needed. No jailbreak. Works on all devices. "
+                f"And the best part? There is absolutely no ban. "
+                f"I tested this myself and it works perfectly. "
+                f"The link is right here on screen. "
+                f"Tap it right now before they patch it. "
+                f"Also make sure to subscribe to my channel "
+                f"so you never miss the next working mod. "
+                f"Go ahead. Download it now. You will not regret it."
+            )
+        else:
+            hook = (
+                f"Wait. Are you still playing {game_name} like everyone else? "
+                f"You need to check out this secret trick for twenty twenty five. "
+                f"This will completely change the way you play. "
+                f"It is completely free and works on almost any device. "
+                f"And the best part? It is super easy to do. "
+                f"I tested this myself and the results are absolutely insane. "
+                f"The link to see how it works is right here on screen. "
+                f"Tap it right now before the secret gets out. "
+                f"Also make sure to subscribe to my channel "
+                f"so you never miss the next big update. "
+                f"Go ahead. Check it out now. You will be amazed."
+            )
         out = Path(tempfile.mktemp(suffix=".mp3"))
         
         # Try ElevenLabs first
@@ -188,7 +204,8 @@ class VideoProcessor:
         if not success or not out.exists():
             log.warning("ALL TTS FAILED! Using 1-second silent audio to prevent crash.")
             from moviepy.editor import AudioClip
-            silent = AudioClip(lambda t: [0,0], duration=5, fps=44100)
+            import numpy as np
+            silent = AudioClip(lambda t: np.zeros((len(t) if isinstance(t, np.ndarray) else 1, 2)), duration=5, fps=44100)
             silent.write_audiofile(str(out), fps=44100, logger=None)
             
         return out

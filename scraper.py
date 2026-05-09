@@ -217,26 +217,25 @@ class VideoScraper:
         )[:60]
         output_tmpl = str(self.cfg.RAW_DIR / f"{safe_title}_%(id)s.%(ext)s")
 
-        # Try multiple download strategies (most compatible first for mobile/Android)
         strategies = [
-            # Strategy 1: Best mp4 up to 720p with section cut (fastest)
+            # Strategy 1: Best mp4 (H.264) up to 720p with section cut (fastest)
             [
                 "yt-dlp",
-                "-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best[ext=mp4]",
+                "-f", "bestvideo[vcodec^=avc][height<=720][ext=mp4]+bestaudio[ext=m4a]/best[vcodec^=avc][ext=mp4]/best[ext=mp4]",
                 "-o", output_tmpl,
                 "--merge-output-format", "mp4",
                 "--no-playlist",
                 "--download-sections", "*00:00:00-00:02:00"
             ],
-            # Strategy 2: Best mp4 up to 1080p, no section filter (more compatible)
+            # Strategy 2: Best mp4 (H.264) up to 1080p, no section filter
             [
                 "yt-dlp",
-                "-f", "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+                "-f", "bestvideo[vcodec^=avc][height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[vcodec^=avc][ext=mp4]/best",
                 "-o", output_tmpl,
                 "--merge-output-format", "mp4",
                 "--no-playlist",
             ],
-            # Strategy 3: Absolute simplest - just grab whatever works
+            # Strategy 3: Absolute simplest
             [
                 "yt-dlp",
                 "-f", "worst[ext=mp4]/worst",
