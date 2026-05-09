@@ -23,5 +23,16 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Create a clean orphan branch with no history
+          git checkout --orphan hf-deploy
+          
+          # Add all current files (respecting .gitignore and .gitattributes)
+          git add .
+          git commit -m "Deploy to HF Space"
+          
+          # Push to HF Space main branch
           git remote add space https://hf_user:$HF_TOKEN@huggingface.co/spaces/HIGMA55/video-automation-bot
-          git push --force space main
+          git push --force space hf-deploy:main
