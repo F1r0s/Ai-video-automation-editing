@@ -6,6 +6,7 @@ Right panel: Live preview canvas with 4-corner scale/move for all elements
 """
 
 import os, logging, threading, time, math, json, requests
+import webbrowser
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from pathlib import Path
@@ -15,6 +16,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent / ".env")
 from scraper import VideoScraper
 from config import Config
+from video_processor import VideoProcessor
 
 log = logging.getLogger("app")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -23,7 +25,7 @@ BG, BG_CARD, BG_INPUT = "#1a1a2e", "#16213e", "#0f3460"
 FG, FG_DIM, ACCENT = "#e6e6e6", "#8888aa", "#00d4ff"
 GREEN, RED, ORANGE = "#00e676", "#ff5252", "#ffa726"
 
-PV_W, PV_H = 270, 480
+PV_W, PV_H = 300, 534        # preview canvas (9:16 ratio, +~11% for larger window)
 VID_W, VID_H = 1080, 1920
 
 
@@ -259,6 +261,7 @@ class CanvasEditor:
         self.canvas = canvas
         self.items = []
         self.selected = None
+        self.locked = False
         
         self.handles = []
         self.sel_rect = None
@@ -274,6 +277,11 @@ class CanvasEditor:
         self.canvas.bind("<B1-Motion>", self.on_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_release)
         self.canvas.bind("<Delete>", self.on_delete_key)
+
+    def set_locked(self, locked):
+        self.locked = locked
+        if locked:
+            self.select(None)
 
     def add_item(self, kind, x, y, text="", path=""):
         item = CanvasItem(self, kind, x, y, text=text, path=path)
@@ -333,6 +341,9 @@ class CanvasEditor:
         for h in self.handles: self.canvas.tag_raise(h)
 
     def on_press(self, e):
+        if self.locked:
+            return
+
         # 1. Check if clicked on a handle
         for h in self.handles:
             c = self.canvas.coords(h)
@@ -364,7 +375,8 @@ class CanvasEditor:
             self.start_item_y = clicked_item.y
 
     def on_drag(self, e):
-        if not self.selected: return
+        if self.locked or not self.selected:
+            return
         self.is_dragging = True
         
         if self.drag_mode == "move":
@@ -393,6 +405,8 @@ class CanvasEditor:
         self.draw_selection()
 
     def on_delete_key(self, _event=None):
+        if self.locked:
+            return
         self.delete_selected()
 
     def get_layout_data(self):
@@ -436,8 +450,8 @@ class VideoAutomationApp:
     def __init__(self, root):
         self.root = root
         root.title("AI Video Automation Studio")
-        root.geometry("1080x860")
-        root.resizable(False, False)
+        root.geometry("1416x1128")   # +20% from original 1180x940
+        root.resizable(True, True)
         root.configure(bg=BG)
 
         self.game_name = tk.StringVar()
@@ -445,10 +459,13 @@ class VideoAutomationApp:
         self.landing_url = tk.StringVar()
         self.landing_link_color = tk.StringVar(value="#64dcff")
         self.max_videos = tk.IntVar(value=3)
-        self.use_cloud = tk.BooleanVar(value=True)
+        self.render_local = tk.BooleanVar(value=True)
+        self.render_cloud = tk.BooleanVar(value=False)
+        self.export_quality = tk.StringVar(value="1080")
         self.processing = False
         self.pause_event = threading.Event()
         self.pause_event.set()
+        self._last_errors = []   # collect render error traces
 
         self.editor = None
 
@@ -457,9 +474,24 @@ class VideoAutomationApp:
         self._build_ui()
 
     def _build_ui(self):
-        left = tk.Frame(self.root, bg=BG, width=540)
-        left.pack(side="left", fill="y", padx=(20,10), pady=20)
-        left.pack_propagate(False)
+        # ── LEFT PANEL — scrollable so all controls + log are always reachable ──
+        left_outer = tk.Frame(self.root, bg=BG, width=640)
+        left_outer.pack(side="left", fill="y", padx=(24, 12), pady=24)
+        left_outer.pack_propagate(False)
+
+        _lc = tk.Canvas(left_outer, bg=BG, highlightthickness=0)
+        _sb = ttk.Scrollbar(left_outer, orient="vertical", command=_lc.yview)
+        _lc.configure(yscrollcommand=_sb.set)
+        _sb.pack(side="right", fill="y")
+        _lc.pack(side="left", fill="both", expand=True)
+
+        left = tk.Frame(_lc, bg=BG)
+        _win = _lc.create_window((0, 0), window=left, anchor="nw")
+
+        left.bind("<Configure>", lambda _: _lc.configure(scrollregion=_lc.bbox("all")))
+        _lc.bind("<Configure>", lambda e: _lc.itemconfig(_win, width=e.width))
+        # Mouse-wheel scrolling (Windows)
+        _lc.bind_all("<MouseWheel>", lambda e: _lc.yview_scroll(int(-1 * e.delta / 120), "units"))
 
         tk.Label(left, text="AI VIDEO", font=("Segoe UI", 24, "bold"), fg=ACCENT, bg=BG).pack()
         tk.Label(left, text="Automation Studio", font=("Segoe UI", 12), fg=FG_DIM, bg=BG).pack()
@@ -508,9 +540,34 @@ class VideoAutomationApp:
         cloud_frame.pack(fill="x", pady=3)
         ci = tk.Frame(cloud_frame, bg=BG_CARD); ci.pack(fill="x", padx=10, pady=8)
         # Status indicator
-        tk.Label(ci, text="☁️ CLOUD RENDERING ACTIVE", font=("Segoe UI", 10, "bold"), 
-                 fg=GREEN, bg=BG_CARD).pack(side="left", padx=10)
-        self.use_cloud = tk.BooleanVar(value=True)
+        tk.Label(ci, text="☁️ CLOUD RENDERING ACTIVE", font=("Segoe UI", 10, "bold"),
+             fg=GREEN, bg=BG_CARD).pack(anchor="w")
+        mode_row = tk.Frame(ci, bg=BG_CARD)
+        mode_row.pack(fill="x", pady=(6, 0))
+        tk.Checkbutton(mode_row, text="Rendering on Local PC", variable=self.render_local,
+                   command=lambda: self._sync_render_mode("local"),
+                   fg=FG, bg=BG_CARD, selectcolor=BG_INPUT, activebackground=BG_CARD,
+                   activeforeground=FG).pack(anchor="w")
+        tk.Checkbutton(mode_row, text="Rendering in the Cloud", variable=self.render_cloud,
+                   command=lambda: self._sync_render_mode("cloud"),
+                   fg=FG, bg=BG_CARD, selectcolor=BG_INPUT, activebackground=BG_CARD,
+                   activeforeground=FG).pack(anchor="w")
+
+        settings_frame = tk.Frame(left, bg=BG_CARD, highlightthickness=1, highlightbackground=BG_INPUT)
+        settings_frame.pack(fill="x", pady=3)
+        si = tk.Frame(settings_frame, bg=BG_CARD); si.pack(fill="x", padx=10, pady=8)
+        tk.Button(si, text="☰ Settings", font=("Segoe UI", 10, "bold"), fg=FG, bg=BG_INPUT,
+              relief="flat", padx=10, pady=4, command=self._toggle_settings).pack(anchor="w")
+        self.settings_panel = tk.Frame(settings_frame, bg=BG_CARD)
+        tk.Label(self.settings_panel, text="Export Quality", font=("Segoe UI", 9, "bold"),
+             fg=FG_DIM, bg=BG_CARD).pack(anchor="w", padx=10, pady=(6, 2))
+        tk.Radiobutton(self.settings_panel, text="1080p", variable=self.export_quality, value="1080",
+                   fg=FG, bg=BG_CARD, selectcolor=BG_INPUT, activebackground=BG_CARD,
+                   activeforeground=FG).pack(anchor="w", padx=10)
+        tk.Radiobutton(self.settings_panel, text="720p", variable=self.export_quality, value="720",
+                   fg=FG, bg=BG_CARD, selectcolor=BG_INPUT, activebackground=BG_CARD,
+                   activeforeground=FG).pack(anchor="w", padx=10)
+        self.settings_panel.pack_forget()
 
         bf = tk.Frame(left, bg=BG); bf.pack(pady=(12,6))
         self.gen_btn = tk.Button(bf, text="GENERATE", font=("Segoe UI",14,"bold"),
@@ -527,12 +584,29 @@ class VideoAutomationApp:
         self.pbar = ttk.Progressbar(left, style="C.Horizontal.TProgressbar", orient="horizontal", mode="determinate")
         self.pbar.pack(fill="x", pady=(4,6))
         
-        self.log_box = tk.Text(left, height=6, font=("Consolas",8), bg=BG_CARD, fg=FG_DIM, relief="flat", wrap="word", state="disabled", highlightthickness=1, highlightcolor=ACCENT, highlightbackground=BG_INPUT)
+        self.log_box = tk.Text(left, height=8, font=("Consolas",8), bg=BG_CARD, fg=FG_DIM, relief="flat", wrap="word", state="disabled", highlightthickness=1, highlightcolor=ACCENT, highlightbackground=BG_INPUT)
         self.log_box.pack(fill="both", expand=True)
+
+        output_frame = tk.Frame(left, bg=BG_CARD, highlightthickness=1, highlightbackground=ACCENT)
+        output_frame.pack(fill="x", pady=(8, 0))
+        out_hdr = tk.Frame(output_frame, bg=BG_CARD)
+        out_hdr.pack(fill="x", padx=10, pady=(8, 2))
+        tk.Label(out_hdr, text="Rendered Output", font=("Segoe UI", 10, "bold"), fg=ACCENT, bg=BG_CARD).pack(side="left")
+        self.export_btn = tk.Button(
+            out_hdr, text="▶ Export to Preview Studio",
+            font=("Segoe UI", 9, "bold"), fg="#fff", bg="#6200ea",
+            relief="flat", padx=10, pady=3,
+            command=self._export_to_preview
+        )
+        self.export_btn.pack(side="right")
+        self.output_url_var = tk.StringVar(value="No output yet")
+        self.output_link = tk.Label(output_frame, textvariable=self.output_url_var, fg=GREEN, bg=BG_CARD, anchor="w", justify="left", wraplength=360, cursor="hand2")
+        self.output_link.pack(fill="x", padx=10, pady=(0, 8))
+        self.output_link.bind("<Button-1>", self._open_output_url)
 
         # RIGHT PANEL
         right = tk.Frame(self.root, bg=BG)
-        right.pack(side="right", fill="both", expand=True, padx=(10,20), pady=20)
+        right.pack(side="right", fill="both", expand=True, padx=(10,24), pady=20)
 
         tk.Label(right, text="PREVIEW EDITOR", font=("Segoe UI",12,"bold"), fg=ACCENT, bg=BG).pack()
         tk.Label(right, text="Drag elements to move | Drag corners to resize", font=("Segoe UI",9), fg=FG_DIM, bg=BG).pack(pady=(0,6))
@@ -548,16 +622,21 @@ class VideoAutomationApp:
 
         # Stickers toolbar
         tk.Label(right, text="Add Stickers:", font=("Segoe UI",9,"bold"), fg=FG, bg=BG).pack(pady=(10,2))
+        tk.Label(right, text="(placed at top of frame — drag to reposition)",
+                 font=("Segoe UI",8), fg=FG_DIM, bg=BG).pack(pady=(0,2))
         tb1 = tk.Frame(right, bg=BG); tb1.pack(pady=2)
         for txt, kind in [("O Circle", "circle"), ("\u25bc Arrow", "arrow"), ("\u261d Finger", "finger")]:
             tk.Button(tb1, text=txt, font=("Segoe UI",9,"bold"), fg="#fff", bg="#e53935",
-                      relief="flat", padx=8, pady=2, command=lambda k=kind: self.editor.add_item(k, PV_W//2, PV_H//2)).pack(side="left", padx=3)
+                      relief="flat", padx=8, pady=2,
+                      command=lambda k=kind: self.editor.add_item(k, PV_W//2, int(PV_H * 0.12))
+                      ).pack(side="left", padx=3)
 
         tb2 = tk.Frame(right, bg=BG); tb2.pack(pady=2)
         for label in ["Click Here!", "Download!", "Subscribe!", "Link Here \u2193", "FREE!"]:
             tk.Button(tb2, text=label, font=("Segoe UI",8,"bold"), fg="#000", bg="#ffeb3b",
                       relief="flat", padx=6, pady=2,
-                      command=lambda t=label: self.editor.add_item("text", PV_W//2, PV_H//2, text=t)).pack(side="left", padx=2)
+                      command=lambda t=label: self.editor.add_item("text", PV_W//2, int(PV_H * 0.12), text=t)
+                      ).pack(side="left", padx=2)
 
         action_bar = tk.Frame(right, bg=BG)
         action_bar.pack(pady=4)
@@ -648,6 +727,64 @@ class VideoAutomationApp:
     def _sts(self, m, c=FG_DIM): self.status_lbl.configure(text=m, fg=c)
     def _prg(self, v): self.pbar["value"] = v
 
+    def _set_output_url(self, url):
+        self.output_url = url
+        self.output_url_var.set(url or "No output yet")
+
+    def _open_output_url(self, _event=None):
+        url = getattr(self, "output_url", "")
+        if url:
+            if os.path.exists(url):
+                webbrowser.open(Path(url).resolve().as_uri())
+            else:
+                webbrowser.open(url)
+
+    def _export_to_preview(self):
+        """Export / open the last rendered video in the OS Preview Studio."""
+        url = getattr(self, "output_url", "")
+        if not url or url == "No output yet":
+            messagebox.showinfo(
+                "No Output",
+                "No rendered video found.\nRun GENERATE first, then click Export."
+            )
+            return
+
+        local_path = None
+        if os.path.exists(url):
+            local_path = Path(url).resolve()
+        elif url.startswith("http"):
+            # Cloud output — download to a temp file then open
+            self._log("Downloading cloud video for preview...")
+            try:
+                import tempfile
+                resp = requests.get(url, timeout=120, stream=True)
+                resp.raise_for_status()
+                suffix = ".mp4"
+                tmp_file = Path(tempfile.mktemp(suffix=suffix))
+                with open(tmp_file, "wb") as f:
+                    for chunk in resp.iter_content(chunk_size=65536):
+                        f.write(chunk)
+                local_path = tmp_file
+                self._log(f"Downloaded to {local_path}")
+            except Exception as exc:
+                messagebox.showerror("Download Error", f"Could not download video:\n{exc}")
+                return
+
+        if local_path and local_path.exists():
+            try:
+                import subprocess, sys
+                if sys.platform == "win32":
+                    os.startfile(str(local_path))   # Windows Media Player / Photos
+                elif sys.platform == "darwin":
+                    subprocess.run(["open", str(local_path)])  # macOS QuickTime
+                else:
+                    subprocess.run(["xdg-open", str(local_path)])  # Linux
+                self._log(f"✓ Opened in Preview Studio: {local_path.name}")
+            except Exception as exc:
+                messagebox.showerror("Preview Error", f"Could not open preview:\n{exc}")
+        else:
+            messagebox.showwarning("File Not Found", f"Video file not found at:\n{url}")
+
     def _on_pause(self):
         if self.pause_event.is_set():
             self.pause_event.clear(); self.pause_btn.configure(text="RESUME",bg=GREEN)
@@ -668,13 +805,17 @@ class VideoAutomationApp:
         self.processing=True; self.pause_event.set()
         self.gen_btn.configure(state="disabled",bg=FG_DIM)
         self.pause_btn.configure(state="normal"); self._prg(0)
+
+        # Lock the editor so stickers cannot be moved while render/upload is running.
+        self.editor.set_locked(True)
+        self._set_output_url("No output yet")
         
         # Deselect to hide handles in preview (though it doesn't affect render)
         self.editor.select(None)
         
         ov=self.editor.get_overlays()
         layout=self.editor.get_layout_data()
-        cloud_mode = self.use_cloud.get()
+        cloud_mode = self.render_cloud.get()
         
         self._log(f"Starting: {g} {'(Cloud Mode)' if cloud_mode else '(Local Mode)'}")
         threading.Thread(target=self._run, args=(g,c,ss,u,ov,layout,cloud_mode), daemon=True).start()
@@ -690,11 +831,19 @@ class VideoAutomationApp:
         self.root.after(0,self._log,f"  Found {len(cands)}."); self.root.after(0,self._prg,10)
         vids=cands[:mx]
         cloud_url = os.getenv("CLOUD_API_URL", "")
-        
-        if not cloud_url:
+        export_quality = self.export_quality.get()
+
+        if cloud_mode and not cloud_url:
             self.root.after(0, self._log, "❌ FATAL ERROR: CLOUD_API_URL not set in .env")
             self.root.after(0, lambda: messagebox.showerror("Error", "Cloud Rendering is required. Please set CLOUD_API_URL in your .env file."))
             self._fin(0); return
+
+        processor = None
+        if not cloud_mode:
+            processor = VideoProcessor(
+                elevenlabs_key=os.getenv("ELEVENLABS_API_KEY", ""),
+                elevenlabs_voice_id=os.getenv("ELEVENLABS_VOICE_ID", "")
+            )
 
         downloaded = 0
         rendered = 0
@@ -709,47 +858,142 @@ class VideoAutomationApp:
             downloaded += 1
             self.root.after(0,self._log,f"  Got: {raw.name}"); self._wait()
             try:
-                self.root.after(0, self._log, "  Uploading to Cloud Rendering...")
-                import requests as req
-                files = {'video': open(str(raw), 'rb')}
-                if ss and os.path.exists(ss):
-                    files['screenshot'] = open(ss, 'rb')
-                data = {
-                    'game': game, 'url': url,
-                    'caption_color': self.caption_color.get(),
-                    'caption_pos': str(self.caption_pos.get()),
-                    'landing_link_color': self.landing_link_color.get(),
-                    'overlays': json.dumps(overlays),
-                    'layout': json.dumps(layout)
-                }
-                resp = req.post(f"{cloud_url}/api/cloud_process", data=data, files=files, timeout=1800)
-                if resp.ok:
-                    self.root.after(0, self._log, "  ✓ Cloud Render Started! Check Telegram.")
-                    rendered += 1
+                if cloud_mode:
+                    self.root.after(0, self._log, "  Uploading to Cloud Rendering...")
+                    import requests as req
+                    files = {'video': open(str(raw), 'rb')}
+                    if ss and os.path.exists(ss):
+                        files['screenshot'] = open(ss, 'rb')
+                    data = {
+                        'game': game, 'url': url,
+                        'caption_color': self.caption_color.get(),
+                        'caption_pos': str(self.caption_pos.get()),
+                        'landing_link_color': self.landing_link_color.get(),
+                        'overlays': json.dumps(overlays),
+                        'layout': json.dumps(layout),
+                        'export_quality': export_quality
+                    }
+                    resp = req.post(f"{cloud_url}/api/cloud_process", data=data, files=files, timeout=1800)
+                    if resp.ok:
+                        try:
+                            payload = resp.json()
+                        except Exception:
+                            payload = {}
+
+                        video_url = payload.get("video_url_720") if export_quality == "720" else payload.get("video_url_1080")
+                        video_url = video_url or payload.get("video_url") or payload.get("video_path")
+                        if video_url:
+                            if video_url.startswith("/"):
+                                video_url = f"{cloud_url}{video_url}"
+                            self.root.after(0, self._set_output_url, video_url)
+                            self.root.after(0, self._log, f"  ✓ Cloud render complete. Video: {video_url}")
+                        else:
+                            self.root.after(0, self._log, "  ✓ Cloud Render Started! Check Telegram.")
+                        rendered += 1
+                    else:
+                        self.root.after(0, self._log, f"  ✗ Cloud Error ({resp.status_code}): {resp.text}")
                 else:
-                    self.root.after(0, self._log, f"  ✗ Cloud Error ({resp.status_code}): {resp.text}")
+                    self.root.after(0, self._log, "  Rendering locally...")
+                    out_path = processor.process(
+                        input_path=str(raw),
+                        game_name=game,
+                        channel_screenshot=ss,
+                        landing_url=url,
+                        progress_callback=lambda p, m: self.root.after(0, self._log, f"  [{p}%] {m}"),
+                        overlay_data=overlays,
+                        layout=layout,
+                        caption_color=self.caption_color.get(),
+                        caption_pos=self.caption_pos.get(),
+                        landing_link_color=self.landing_link_color.get()
+                    )
+                    final_path = str(out_path)
+                    if export_quality == "720":
+                        final_path = self._make_720p_copy(final_path)
+                    self.root.after(0, self._set_output_url, final_path)
+                    self.root.after(0, self._log, f"  ✓ Local render complete. Video: {final_path}")
+                    rendered += 1
             except Exception as e:
-                self.root.after(0, self._log, f"  ERROR: {e}")
+                import traceback as _tb
+                full = _tb.format_exc()
+                self._last_errors.append(str(e))
+                self.root.after(0, self._log, f"  ❌ ERROR: {e}")
+                self.root.after(0, self._log, f"  (see error popup when finished)")
+                log.error(f"Render error:\n{full}")
         # Cloud render sends to Telegram itself, so we just finish here.
         self._fin(rendered, downloaded)
 
     def _fin(self, rendered, downloaded=0):
-        self.root.after(0,self._prg,100)
+        self.root.after(0, self._prg, 100)
         if rendered:
             status = f"Done! {rendered} video(s) rendered"
             if downloaded and downloaded != rendered:
                 status += f" from {downloaded} download(s)"
             status += "."
-            self.root.after(0,self._sts,status,GREEN)
+            self.root.after(0, self._sts, status, GREEN)
         elif downloaded:
-            self.root.after(0,self._sts,f"Downloaded {downloaded} video(s), but render failed.",RED)
+            self.root.after(0, self._sts, f"Downloaded {downloaded} video(s), but render failed.", RED)
         else:
-            self.root.after(0,self._sts,"No videos downloaded.",RED)
-        self.root.after(0,lambda:self.gen_btn.configure(state="normal",bg=GREEN))
-        self.root.after(0,lambda:self.pause_btn.configure(state="disabled",text="PAUSE",bg=ORANGE))
-        self.processing=False
+            self.root.after(0, self._sts, "No videos downloaded.", RED)
+
+        self.root.after(0, lambda: self.gen_btn.configure(state="normal", bg=GREEN))
+        self.root.after(0, lambda: self.pause_btn.configure(state="disabled", text="PAUSE", bg=ORANGE))
+        self.root.after(0, lambda: self.editor.set_locked(False))
+        self.processing = False
+
+        errors = list(self._last_errors)
+        self._last_errors.clear()
+
         if rendered:
-            self.root.after(0,lambda:messagebox.showinfo("Done",f"{rendered} promo(s) rendered and sent to Telegram!"))
+            self.root.after(0, lambda: messagebox.showinfo(
+                "✅ Done", f"{rendered} promo(s) rendered!\nClick 'Export to Preview Studio' to watch it."))
+        elif errors:
+            # Show the actual crash reason so the user knows exactly what to fix
+            detail = "\n\n".join(errors[:3])   # show up to 3 errors
+            self.root.after(0, lambda: messagebox.showerror(
+                "❌ Render Failed — Error Details",
+                f"The render failed with this error:\n\n{detail}\n\n"
+                "Common fixes:\n"
+                "• Local mode: make sure ffmpeg is installed (winget install ffmpeg)\n"
+                "• Cloud mode: check that your HuggingFace Space is running\n"
+                "• Scroll the log panel to see the full trace"
+            ))
+
+    def _sync_render_mode(self, changed):
+        if changed == "local" and self.render_local.get():
+            self.render_cloud.set(False)
+        elif changed == "cloud" and self.render_cloud.get():
+            self.render_local.set(False)
+        if not self.render_local.get() and not self.render_cloud.get():
+            self.render_local.set(True)
+
+    def _toggle_settings(self):
+        if self.settings_panel.winfo_ismapped():
+            self.settings_panel.pack_forget()
+        else:
+            self.settings_panel.pack(fill="x", padx=10, pady=(2, 6))
+
+    def _make_720p_copy(self, source_path: str) -> str:
+        source = Path(source_path)
+        target = source.with_name(f"{source.stem}_720p{source.suffix}")
+        try:
+            from moviepy.editor import VideoFileClip
+            clip = VideoFileClip(str(source))
+            try:
+                clip.resize(height=720).write_videofile(
+                    str(target),
+                    codec="libx264",
+                    audio_codec="aac",
+                    fps=30,
+                    preset="fast",
+                    threads=4,
+                    logger=None,
+                )
+            finally:
+                clip.close()
+            return str(target)
+        except Exception as exc:
+            self.root.after(0, self._log, f"  ⚠ 720p conversion failed: {exc}")
+            return str(source)
 
 if __name__=="__main__":
     root=tk.Tk(); VideoAutomationApp(root); root.mainloop()

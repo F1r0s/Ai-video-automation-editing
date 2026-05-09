@@ -44,6 +44,12 @@ TARGET_W = 1080
 TARGET_H = 1920
 MAX_DUR  = 30
 FONT_PATH = Path("assets/Montserrat-Bold.ttf")
+if not FONT_PATH.exists():
+    log.warning(
+        "Font 'assets/Montserrat-Bold.ttf' not found. "
+        "Subtitles and overlays will use the PIL default font. "
+        "Download Montserrat-Bold.ttf from Google Fonts and place it in the assets/ folder."
+    )
 
 # Sticker asset paths
 STICKER_ASSETS = {
@@ -548,7 +554,7 @@ class VideoProcessor:
             out_path,
             codec="libx264", audio_codec="aac",
             fps=30, preset="fast", threads=4,
-            logger='bar',
+            logger=None,   # suppress verbose ffmpeg bar in desktop GUI
         )
 
         # Cleanup

@@ -94,5 +94,6 @@ for src_name, dst_name in PAIRS:
     if not src.exists():
         print(f"Skipping, source missing: {src}")
         continue
-    # Always overwrite to ensure animation preserved
+    if dst.exists():
+        continue
     convert_webp_to_gif(src, dst)
