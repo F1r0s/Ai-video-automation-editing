@@ -43,19 +43,21 @@ log = logging.getLogger("processor")
 TARGET_W = 1080
 TARGET_H = 1920
 MAX_DUR  = 30
-FONT_PATH = Path("assets/Montserrat-Bold.ttf")
+ASSETS_DIR = Path(__file__).parent / "assets"
+FONT_PATH = ASSETS_DIR / "Montserrat-Bold.ttf"
+
 if not FONT_PATH.exists():
     log.warning(
-        "Font 'assets/Montserrat-Bold.ttf' not found. "
+        f"Font '{FONT_PATH}' not found. "
         "Subtitles and overlays will use the PIL default font. "
         "Download Montserrat-Bold.ttf from Google Fonts and place it in the assets/ folder."
     )
 
 # Sticker asset paths
 STICKER_ASSETS = {
-    "circle": Path("assets/circle.gif"),
-    "arrow": Path("assets/arrow.gif"),
-    "finger": Path("assets/Hand pointing finger.gif"),
+    "circle": ASSETS_DIR / "circle.gif",
+    "arrow": ASSETS_DIR / "arrow.gif",
+    "finger": ASSETS_DIR / "Hand pointing finger.gif",
 }
 
 
