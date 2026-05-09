@@ -231,7 +231,9 @@
         const circle = new fabric.Circle({
             radius: 40, fill: 'transparent', stroke: 'red', strokeWidth: 4,
             left: 135, top: 240, originX: 'center', originY: 'center',
-            transparentCorners: false, cornerColor: 'white', borderColor: '#00d4ff', customKind: 'circle'
+            transparentCorners: false, cornerColor: 'white', borderColor: '#00d4ff', customKind: 'circle',
+            selectable: false, evented: false, lockMovementX: true, lockMovementY: true,
+            lockScalingX: true, lockScalingY: true, lockRotation: true, hasControls: false, hasBorders: false
         });
         canvas.add(circle);
         canvas.setActiveObject(circle);
@@ -242,7 +244,9 @@
             {x: 0, y: -25}, {x: -15, y: 12}, {x: 15, y: 12}
         ], {
             fill: 'red', left: 135, top: 240, originX: 'center', originY: 'center',
-            transparentCorners: false, cornerColor: 'white', borderColor: '#00d4ff', customKind: 'arrow', scaleX: 1.5, scaleY: 1.5
+            transparentCorners: false, cornerColor: 'white', borderColor: '#00d4ff', customKind: 'arrow', scaleX: 1.5, scaleY: 1.5,
+            selectable: false, evented: false, lockMovementX: true, lockMovementY: true,
+            lockScalingX: true, lockScalingY: true, lockRotation: true, hasControls: false, hasBorders: false
         });
         canvas.add(arrow);
         canvas.setActiveObject(arrow);
@@ -251,7 +255,9 @@
     function addFinger() {
         const text = new fabric.Text("☝", {
             fill: 'red', fontSize: 40, left: 135, top: 240, originX: 'center', originY: 'center',
-            transparentCorners: false, cornerColor: 'white', borderColor: '#00d4ff', customKind: 'finger'
+            transparentCorners: false, cornerColor: 'white', borderColor: '#00d4ff', customKind: 'finger',
+            selectable: false, evented: false, lockMovementX: true, lockMovementY: true,
+            lockScalingX: true, lockScalingY: true, lockRotation: true, hasControls: false, hasBorders: false
         });
         canvas.add(text);
         canvas.setActiveObject(text);
@@ -261,7 +267,9 @@
         const text = new fabric.Text(str, {
             fill: 'yellow', backgroundColor: 'rgba(0,0,0,0.8)', fontSize: 18, fontWeight: 'bold',
             left: 135, top: 240, originX: 'center', originY: 'center', padding: 5,
-            transparentCorners: false, cornerColor: 'white', borderColor: '#00d4ff', customKind: 'text', customText: str
+            transparentCorners: false, cornerColor: 'white', borderColor: '#00d4ff', customKind: 'text', customText: str,
+            selectable: false, evented: false, lockMovementX: true, lockMovementY: true,
+            lockScalingX: true, lockScalingY: true, lockRotation: true, hasControls: false, hasBorders: false
         });
         canvas.add(text);
         canvas.setActiveObject(text);
@@ -321,7 +329,7 @@
 
         const layout = { ss_ox, ss_oy, ss_zoom, link_x, link_y, link_scale };
 
-        // Freeze canvas
+        // Freeze canvas while the request is running
         canvas.getObjects().forEach(o => { o.selectable = false; o.evented = false; });
         canvas.discardActiveObject();
         canvas.renderAll();
@@ -371,19 +379,23 @@
             const data = await response.json();
             
             clearInterval(pollInterval);
+
+            const videoUrl1080 = data.video_url_1080 || data.video_url || data.video_path || "";
+            const videoUrl720 = data.video_url_720 || data.video_url || data.video_path || "";
+            const videoUrl = videoUrl1080;
             
             if (response.ok) {
-                status.innerText = `✅ Success! Generated videos. Delivery to Telegram!`;
+                status.innerText = `✅ Success! Rendering complete. Preview and download ready.`;
                 status.style.color = "#00e676";
                 
                 // Show Video Output
-                if (data.video_url) {
+                if (videoUrl) {
                     document.getElementById('video_output_container').style.display = 'block';
                     const vidEl = document.getElementById('output_video');
-                    vidEl.src = data.video_url;
+                    vidEl.src = videoUrl;
                     
-                    document.getElementById('download_1080p').href = data.video_url;
-                    document.getElementById('download_720p').href = data.video_url;
+                    document.getElementById('download_1080p').href = videoUrl1080;
+                    document.getElementById('download_720p').href = videoUrl720;
                     
                     vidEl.play();
                 }
@@ -424,7 +436,10 @@
         btn.disabled = false;
         cancelBtn.style.display = 'none';
         loader.style.display = 'none';
-        canvas.getObjects().forEach(o => { o.selectable = true; o.evented = true; });
+        if (bgImage) {
+            bgImage.selectable = true;
+            bgImage.evented = true;
+        }
     }
 
     function cancelGeneration() {

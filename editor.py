@@ -21,7 +21,7 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageColor
 # Monkey-patch for MoviePy 1.0.3 compatibility with Pillow 10+
 if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = Image.LANCZOS
@@ -127,9 +127,22 @@ class VideoEditor:
         result = model.transcribe(str(video_path), language="en", fp16=False)
         return result.get("segments", [])
 
-    def _make_subtitle_clips(self, segments: list[dict], video_w: int, video_h: int) -> list:
+    def _make_subtitle_clips(self, segments: list[dict], video_w: int, video_h: int, caption_color: str = "white", caption_pos: float = 0.58) -> list:
         """Render each subtitle segment as a TextClip."""
         clips = []
+        def resolve_color(value: str) -> tuple[int, int, int]:
+            try:
+                return ImageColor.getrgb(value)
+            except Exception:
+                palette = {
+                    "yellow": (255, 215, 0),
+                    "white": (255, 255, 255),
+                    "green": (0, 230, 118),
+                    "cyan": (0, 212, 255),
+                }
+                return palette.get(str(value).lower(), (255, 255, 255))
+
+        subtitle_rgb = resolve_color(caption_color)
         for seg in segments:
             txt   = seg["text"].strip()
             start = seg["start"]
@@ -139,25 +152,39 @@ class VideoEditor:
                 continue
 
             # Wrap long lines
-            wrapped = "\n".join(textwrap.wrap(txt, width=28))
+            wrapped = "\n".join(textwrap.wrap(txt, width=18))
 
             try:
-                clip = (
-                    TextClip(
-                        wrapped,
-                        fontsize   = 54,
-                        font       = str(FONT_PATH) if FONT_PATH.exists() else "Arial",
-                        color      = "white",
-                        stroke_color="black",
-                        stroke_width=3,
-                        method     = "caption",
-                        size       = (video_w - 80, None),
-                        align      = "center",
-                    )
-                    .set_start(start)
-                    .set_duration(dur)
-                    .set_position(("center", int(video_h * 0.75)))
+                import numpy as np
+
+                font_size = max(64, int(video_h * 0.050))
+                font = ImageFont.truetype(str(FONT_PATH), font_size) if FONT_PATH.exists() else ImageFont.load_default()
+                stroke_width = max(4, font_size // 18)
+                box_w = min(video_w - 80, 1040)
+                box_h = 260
+                img = Image.new("RGBA", (box_w, box_h), (255, 255, 255, 0))
+                draw = ImageDraw.Draw(img)
+                bbox = draw.multiline_textbbox((0, 0), wrapped, font=font, align="center", spacing=10, stroke_width=stroke_width)
+                tw = bbox[2] - bbox[0]
+                th = bbox[3] - bbox[1]
+                pad_x = 38
+                pad_y = 24
+                bg_left = max(0, (box_w - tw) // 2 - pad_x)
+                bg_top = max(0, (box_h - th) // 2 - pad_y)
+                bg_right = min(box_w, (box_w + tw) // 2 + pad_x)
+                bg_bottom = min(box_h, (box_h + th) // 2 + pad_y)
+                draw.rounded_rectangle([bg_left, bg_top, bg_right, bg_bottom], radius=28, fill=(0, 0, 0, 185))
+                draw.multiline_text(
+                    ((box_w - tw) / 2, (box_h - th) / 2 - 2),
+                    wrapped,
+                    font=font,
+                    fill=subtitle_rgb + (255,),
+                    align="center",
+                    spacing=10,
+                    stroke_width=stroke_width,
+                    stroke_fill=(0, 0, 0, 255),
                 )
+                clip = ImageClip(np.array(img)).set_start(start).set_duration(dur).set_position(("center", int(video_h * max(0.50, min(caption_pos, 0.66)))))
                 clips.append(clip)
             except Exception as exc:
                 log.warning(f"  Subtitle clip error: {exc}")
@@ -237,7 +264,7 @@ class VideoEditor:
         return clip
 
     def process(self, input_path: Path, branding_image: str,
-                landing_url: str, game_name: str) -> Path:
+                landing_url: str, game_name: str, caption_color: str = "white", caption_pos: float = 0.58) -> Path:
         """
         Full editing pipeline for one video.
         Returns path to the final MP4.
@@ -278,7 +305,7 @@ class VideoEditor:
         # 4. Subtitles (Whisper transcription) ────────────────────────────────
         try:
             segments = self._transcribe(input_path)
-            sub_clips = self._make_subtitle_clips(segments, tw, th)
+            sub_clips = self._make_subtitle_clips(segments, tw, th, caption_color=caption_color, caption_pos=caption_pos)
             if sub_clips:
                 clip = CompositeVideoClip([clip] + sub_clips)
         except Exception as exc:

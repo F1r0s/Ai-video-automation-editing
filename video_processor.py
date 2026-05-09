@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Optional, Callable
 
 import requests
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageSequence, ImageColor
 # Monkey-patch for MoviePy 1.0.3 + Pillow 10+
 if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = Image.LANCZOS
@@ -53,6 +53,19 @@ STICKER_ASSETS = {
 }
 
 
+def _resolve_rgb(color_value: str, fallback: tuple[int, int, int]) -> tuple[int, int, int]:
+    try:
+        return ImageColor.getrgb(color_value)
+    except Exception:
+        named = {
+            "yellow": (255, 215, 0),
+            "white": (255, 255, 255),
+            "green": (0, 230, 118),
+            "cyan": (0, 212, 255),
+        }
+        return named.get(str(color_value).lower(), fallback)
+
+
 class VideoProcessor:
     """Processes a single video into a CPA promo clip."""
 
@@ -68,13 +81,42 @@ class VideoProcessor:
         for kind, asset_path in STICKER_ASSETS.items():
             if asset_path.exists():
                 try:
-                    img = Image.open(str(asset_path)).convert("RGBA")
-                    self.sticker_cache[kind] = img
+                    source = Image.open(str(asset_path))
+                    frames = []
+                    durations = []
+                    for frame in ImageSequence.Iterator(source):
+                        rgba = frame.convert("RGBA")
+                        frames.append(rgba.copy())
+                        durations.append(max(40, int(frame.info.get("duration", source.info.get("duration", 100) or 100))))
+                    if not frames:
+                        frames = [source.convert("RGBA")]
+                        durations = [100]
+                    self.sticker_cache[kind] = {"frames": frames, "durations": durations}
                     log.info(f"Loaded sticker asset: {kind} ({asset_path})")
                 except Exception as e:
                     log.warning(f"Failed to load sticker {kind}: {e}")
             else:
                 log.warning(f"Sticker asset not found: {asset_path}")
+
+    def _sticker_frame(self, sticker: dict, t: float) -> Image.Image:
+        frames = sticker.get("frames") or []
+        durations = sticker.get("durations") or []
+        if not frames:
+            raise ValueError("Empty sticker asset")
+        if len(frames) == 1:
+            return frames[0]
+
+        total = sum(durations) if durations else len(frames) * 100
+        if total <= 0:
+            return frames[0]
+
+        position_ms = int((t * 1000) % total)
+        elapsed = 0
+        for frame, duration in zip(frames, durations):
+            elapsed += duration
+            if position_ms < elapsed:
+                return frame
+        return frames[-1]
 
     # ── TTS ────────────────────────────────────────────────────────────────────
 
@@ -159,13 +201,13 @@ class VideoProcessor:
     def _make_subtitle_clips(self, segments: list[dict], w: int, h: int, color: str, pos_y: float) -> list:
         clips = []
         try:
-            from PIL import Image, ImageDraw, ImageFont
             import numpy as np
             from moviepy.editor import ImageClip
-            
-            font_path = str(FONT_PATH) if FONT_PATH.exists() else "arial.ttf"
+
+            subtitle_rgb = _resolve_rgb(color, (255, 255, 255))
+            font_path = str(FONT_PATH) if FONT_PATH.exists() else "Arial"
             try:
-                font = ImageFont.truetype(font_path, 54)
+                font = ImageFont.truetype(font_path, max(64, int(h * 0.050)))
             except IOError:
                 font = ImageFont.load_default()
 
@@ -176,25 +218,37 @@ class VideoProcessor:
                 if not txt or dur <= 0:
                     continue
                 
-                wrapped = "\n".join(textwrap.wrap(txt, width=28))
+                wrapped = "\n".join(textwrap.wrap(txt, width=18))
                 
-                # Create transparent PIL image
-                img = Image.new('RGBA', (w - 80, 200), (255, 255, 255, 0))
+                # Create a high-contrast subtitle card.
+                box_w = min(w - 80, 1040)
+                box_h = 260
+                img = Image.new('RGBA', (box_w, box_h), (255, 255, 255, 0))
                 draw = ImageDraw.Draw(img)
                 
-                # Calculate text size using textbbox for newer PIL versions
-                bbox = draw.textbbox((0, 0), wrapped, font=font, align="center")
+                stroke_width = max(4, font.size // 18 if hasattr(font, "size") else 4)
+                bbox = draw.multiline_textbbox((0, 0), wrapped, font=font, align="center", spacing=10, stroke_width=stroke_width)
                 tw = bbox[2] - bbox[0]
                 th = bbox[3] - bbox[1]
-                
-                # Center text
-                tx = ((w - 80) - tw) / 2
-                ty = (200 - th) / 2
-                
-                # Draw text with stroke (black border)
-                stroke_width = 3
-                draw.text((tx, ty), wrapped, font=font, fill=color, align="center", 
-                          stroke_width=stroke_width, stroke_fill="black")
+
+                pad_x = 38
+                pad_y = 24
+                bg_left = max(0, (box_w - tw) // 2 - pad_x)
+                bg_top = max(0, (box_h - th) // 2 - pad_y)
+                bg_right = min(box_w, (box_w + tw) // 2 + pad_x)
+                bg_bottom = min(box_h, (box_h + th) // 2 + pad_y)
+                draw.rounded_rectangle([bg_left, bg_top, bg_right, bg_bottom], radius=28, fill=(0, 0, 0, 185))
+
+                draw.multiline_text(
+                    ((box_w - tw) / 2, (box_h - th) / 2 - 2),
+                    wrapped,
+                    font=font,
+                    fill=subtitle_rgb + (255,),
+                    align="center",
+                    spacing=10,
+                    stroke_width=stroke_width,
+                    stroke_fill=(0, 0, 0, 255),
+                )
                 
                 # Convert to numpy array
                 img_np = np.array(img)
@@ -215,13 +269,13 @@ class VideoProcessor:
 
     def _make_cpa_bar(self, landing_url: str, duration: float, link_color: str = "#64dcff") -> ImageClip:
         """Semi-transparent bar at the bottom with the CPA link."""
-        bar_h = 130
+        bar_h = 165
         img = Image.new("RGBA", (TARGET_W, bar_h), (0, 0, 0, 210))
         draw = ImageDraw.Draw(img)
 
         try:
-            font_big   = ImageFont.truetype(str(FONT_PATH), 34) if FONT_PATH.exists() else ImageFont.load_default()
-            font_small = ImageFont.truetype(str(FONT_PATH), 26) if FONT_PATH.exists() else ImageFont.load_default()
+            font_big   = ImageFont.truetype(str(FONT_PATH), 42) if FONT_PATH.exists() else ImageFont.load_default()
+            font_small = ImageFont.truetype(str(FONT_PATH), 34) if FONT_PATH.exists() else ImageFont.load_default()
         except Exception:
             font_big = font_small = ImageFont.load_default()
 
@@ -229,7 +283,7 @@ class VideoProcessor:
         cta = "Download FREE MOD Now!"
         bbox = draw.textbbox((0, 0), cta, font=font_big)
         tw = bbox[2] - bbox[0]
-        draw.text(((TARGET_W - tw) // 2, 15), cta, fill=(0, 255, 100, 255), font=font_big)
+        draw.text(((TARGET_W - tw) // 2, 16), cta, fill=(0, 255, 100, 255), font=font_big)
 
         # URL text - convert hex color to RGB tuple
         try:
@@ -241,7 +295,8 @@ class VideoProcessor:
         
         bbox2 = draw.textbbox((0, 0), landing_url, font=font_small)
         tw2 = bbox2[2] - bbox2[0]
-        draw.text(((TARGET_W - tw2) // 2, 70), landing_url, fill=link_fill, font=font_small)
+        draw.rounded_rectangle([(TARGET_W - tw2) // 2 - 18, 88, (TARGET_W + tw2) // 2 + 18, 88 + 44], radius=14, fill=(0, 0, 0, 160))
+        draw.text(((TARGET_W - tw2) // 2, 92), landing_url, fill=link_fill, font=font_small)
 
         tmp = Path(tempfile.mktemp(suffix=".png"))
         img.save(str(tmp))
@@ -310,7 +365,7 @@ class VideoProcessor:
 
                 if item["kind"] == "circle" and "circle" in self.sticker_cache:
                     # Render circle asset with animation
-                    circle_img = self.sticker_cache["circle"]
+                    circle_img = self._sticker_frame(self.sticker_cache["circle"], t)
                     scaled_sz = int(80 * sz * pulse)
                     scaled_circle = circle_img.resize((scaled_sz, scaled_sz), Image.LANCZOS)
                     paste_x = cx - scaled_sz // 2
@@ -319,7 +374,7 @@ class VideoProcessor:
 
                 elif item["kind"] == "arrow" and "arrow" in self.sticker_cache:
                     # Render arrow asset with bounce animation
-                    arrow_img = self.sticker_cache["arrow"]
+                    arrow_img = self._sticker_frame(self.sticker_cache["arrow"], t)
                     ay = cy + bounce
                     scaled_sz = int(80 * sz)
                     scaled_arrow = arrow_img.resize((scaled_sz, int(scaled_sz * 1.3)), Image.LANCZOS)
@@ -329,7 +384,7 @@ class VideoProcessor:
 
                 elif item["kind"] == "finger" and "finger" in self.sticker_cache:
                     # Render finger asset with bounce animation
-                    finger_img = self.sticker_cache["finger"]
+                    finger_img = self._sticker_frame(self.sticker_cache["finger"], t)
                     fy = cy + bounce
                     scaled_sz = int(100 * sz)
                     scaled_finger = finger_img.resize((scaled_sz, scaled_sz), Image.LANCZOS)
@@ -348,7 +403,7 @@ class VideoProcessor:
                     draw.rounded_rectangle(
                         [cx-tw//2-pad, cy-th//2-pad, cx+tw//2+pad, cy+th//2+pad],
                         radius=16, fill=(0,0,0,220))
-                    draw.text((cx-tw//2, cy-th//2), txt, fill=(255,255,0), font=tf)
+                    draw.text((cx-tw//2, cy-th//2), txt, fill=(255,255,0,255), font=tf)
 
             # Link text
             lx = int(link_x * TARGET_W)
@@ -364,8 +419,8 @@ class VideoProcessor:
             
             bb = draw.textbbox((0,0), landing_url, font=link_font)
             ltw = bb[2] - bb[0]
-            draw.rectangle([(lx-ltw//2-8, ly-14), (lx+ltw//2+8, ly+14)], fill=(0,0,0,200))
-            draw.text((lx-ltw//2, ly-10), landing_url, fill=link_fill, font=link_font)
+            draw.rounded_rectangle([(lx-ltw//2-18, ly-24), (lx+ltw//2+18, ly+24)], radius=14, fill=(0,0,0,200))
+            draw.text((lx-ltw//2, ly-18), landing_url, fill=link_fill, font=link_font)
 
             return np.array(bg.convert("RGB"))
 
@@ -395,7 +450,7 @@ class VideoProcessor:
         overlay_data: list = None,
         layout: dict = None,
         caption_color: str = "yellow",
-        caption_pos: float = 0.70,
+        caption_pos: float = 0.58,
         landing_link_color: str = "#64dcff",
     ) -> str:
         """

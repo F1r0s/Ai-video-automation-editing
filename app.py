@@ -472,7 +472,7 @@ class VideoAutomationApp:
 
         # Caption Settings
         self.caption_color = tk.StringVar(value="yellow")
-        self.caption_pos = tk.DoubleVar(value=0.70)
+        self.caption_pos = tk.DoubleVar(value=0.58)
         
         cap_frame = tk.Frame(left, bg=BG_CARD, highlightthickness=1, highlightbackground=BG_INPUT)
         cap_frame.pack(fill="x", pady=3)
@@ -488,10 +488,10 @@ class VideoAutomationApp:
         # Override menu to show labels
         menu = cap_pos_menu["menu"]
         menu.delete(0, "end")
-        menu.add_command(label="📍 Center Low (Default)", command=lambda: self.caption_pos.set(0.70))
-        menu.add_command(label="📍 Dead Center", command=lambda: self.caption_pos.set(0.50))
-        menu.add_command(label="📍 Top High", command=lambda: self.caption_pos.set(0.25))
-        menu.add_command(label="📍 Very Bottom", command=lambda: self.caption_pos.set(0.85))
+        menu.add_command(label="📍 Safe Zone Center (Default)", command=lambda: self.caption_pos.set(0.58))
+        menu.add_command(label="📍 Slightly Lower", command=lambda: self.caption_pos.set(0.62))
+        menu.add_command(label="📍 Higher", command=lambda: self.caption_pos.set(0.50))
+        menu.add_command(label="📍 Very Bottom", command=lambda: self.caption_pos.set(0.78))
 
         # Landing Link Color
         link_frame = tk.Frame(left, bg=BG_CARD, highlightthickness=1, highlightbackground=BG_INPUT)
@@ -722,12 +722,12 @@ class VideoAutomationApp:
                     'overlays': json.dumps(overlays),
                     'layout': json.dumps(layout)
                 }
-                resp = req.post(f"{cloud_url}/api/cloud_process", data=data, files=files, timeout=600)
+                resp = req.post(f"{cloud_url}/api/cloud_process", data=data, files=files, timeout=1800)
                 if resp.ok:
                     self.root.after(0, self._log, "  ✓ Cloud Render Started! Check Telegram.")
                     rendered += 1
                 else:
-                    self.root.after(0, self._log, f"  ✗ Cloud Error: {resp.text[:100]}")
+                    self.root.after(0, self._log, f"  ✗ Cloud Error ({resp.status_code}): {resp.text}")
             except Exception as e:
                 self.root.after(0, self._log, f"  ERROR: {e}")
         # Cloud render sends to Telegram itself, so we just finish here.

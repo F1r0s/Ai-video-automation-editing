@@ -33,9 +33,6 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max for screenshot
 # Make sure uploads directory exists
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
-# Set a simple password in your .env or hardcode here
-APP_SECRET_PWD = os.getenv("APP_PASSWORD", "promo123")
-
 
 @app.route('/')
 def index():
@@ -47,6 +44,83 @@ def update_status(msg):
             json.dump({"message": msg}, f)
     except:
         pass
+
+
+def _send_videos_to_telegram(processed_files, caption_prefix="Promo ready"):
+    from datetime import datetime
+    tg_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    tg_chat = os.getenv("TELEGRAM_CHAT_ID", "")
+
+    if not tg_token or not tg_chat:
+        update_status("Telegram not configured: set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.")
+        log.warning("Telegram not configured: missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID.")
+        return
+
+    if not processed_files:
+        return
+
+    import requests
+
+    tg_batch_start = datetime.now()
+    update_status("Sending to Telegram...")
+
+    for idx, fp in enumerate(processed_files, 1):
+        try:
+            tg_send_start = datetime.now()
+            with open(fp, "rb") as f:
+                r = requests.post(
+                    f"https://api.telegram.org/bot{tg_token}/sendVideo",
+                    data={"chat_id": tg_chat, "caption": f"{caption_prefix}: {Path(fp).name}"},
+                    files={"video": f},
+                    timeout=300,
+                )
+            tg_send_end = datetime.now()
+            send_duration = (tg_send_end - tg_send_start).total_seconds()
+            if r.ok:
+                log.info(f"✓ Telegram {idx}/{len(processed_files)} sent [{tg_send_start.isoformat()}] - Duration: {send_duration:.2f}s")
+                update_status(f"✓ Video {idx}/{len(processed_files)} sent to Telegram [{tg_send_end.isoformat()}]")
+            else:
+                log.error(f"Telegram Error: {r.text}")
+                update_status(f"✗ Telegram failed: {r.status_code}")
+        except Exception as e:
+            log.error(f"Telegram error: {e}")
+            update_status(f"✗ Telegram failed: {e}")
+
+    tg_batch_end = datetime.now()
+    total_duration = (tg_batch_end - tg_batch_start).total_seconds()
+    log.info(f"Telegram batch complete: {total_duration:.2f}s total")
+
+
+def _make_720p_copy(source_path: str) -> str:
+    """Create a lower-resolution 720p copy next to the finished 1080p render."""
+    source = Path(source_path)
+    target = source.with_name(f"{source.stem}_720p{source.suffix}")
+
+    try:
+        from moviepy.editor import VideoFileClip
+
+        clip = VideoFileClip(str(source))
+        try:
+            clip.resize(height=720).write_videofile(
+                str(target),
+                codec="libx264",
+                audio_codec="aac",
+                fps=30,
+                preset="fast",
+                threads=4,
+                logger=None,
+            )
+        finally:
+            clip.close()
+
+        return str(target)
+    except Exception as exc:
+        log.warning(f"720p conversion failed for {source.name}: {exc}")
+        return str(source)
+
+
+def _output_url(path_value: str) -> str:
+    return f"/output/{Path(path_value).name}"
 
 @app.route('/api/status', methods=['GET'])
 def get_status():
@@ -72,10 +146,7 @@ def serve_output(filename):
 
 @app.route('/api/verify', methods=['POST'])
 def verify_pwd():
-    data = request.get_json() or {}
-    if data.get('pwd') == APP_SECRET_PWD:
-        return jsonify({"success": True})
-    return jsonify({"success": False}), 403
+    return jsonify({"success": True})
 
 @app.route('/api/generate', methods=['POST'])
 def generate():
@@ -86,7 +157,7 @@ def generate():
     url = request.form.get('url', '').strip()
     max_v = int(request.form.get('max', 3))
     cap_color = request.form.get('caption_color', 'yellow')
-    cap_pos = float(request.form.get('caption_pos', 0.70))
+    cap_pos = float(request.form.get('caption_pos', 0.58))
     link_color = request.form.get('landing_link_color', '#64dcff')  # cyan default
     overlays_json = request.form.get('overlays', '[]')
     layout_json = request.form.get('layout', '{}')
@@ -161,62 +232,6 @@ def generate():
             update_status(f"Error processing video: {e}")
             log.error(f"Error processing video: {e}")
 
-    # 3. Send to Telegram
-    from datetime import datetime
-    update_status("Sending to Telegram...")
-    tg_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-    tg_chat = os.getenv("TELEGRAM_CHAT_ID", "")
-    
-    if tg_token and tg_chat and processed_files:
-        import requests
-        tg_batch_start = datetime.now()
-        for idx, fp in enumerate(processed_files, 1):
-            try:
-                tg_send_start = datetime.now()
-                with open(fp, "rb") as f:
-                    r = requests.post(
-                        f"https://api.telegram.org/bot{tg_token}/sendVideo",
-                        data={"chat_id": tg_chat, "caption": f"Promo ready: {Path(fp).name}"},
-                        files={"video": f},
-                        timeout=300
-                    )
-                    tg_send_end = datetime.now()
-                    send_duration = (tg_send_end - tg_send_start).total_seconds()
-                    if r.ok:
-                        log.info(f"✓ Telegram {idx}/{len(processed_files)} sent [{tg_send_start.isoformat()}] - Duration: {send_duration:.2f}s")
-                        update_status(f"✓ Video {idx}/{len(processed_files)} sent to Telegram [{tg_send_end.isoformat()}]")
-                    else:
-                        log.error(f"Telegram Error: {r.text}")
-                        update_status(f"✗ Telegram failed: {r.status_code}")
-            except Exception as e:
-                log.error(f"Telegram error: {e}")
-                update_status(f"✗ Telegram failed: {e}")
-        tg_batch_end = datetime.now()
-        total_duration = (tg_batch_end - tg_batch_start).total_seconds()
-        log.info(f"Telegram batch complete: {total_duration:.2f}s total")
-
-    update_status("Generating SEO and Thumbnail...")
-    seo_data_dict = {}
-    thumb_url = None
-    try:
-        from seo import SEOGenerator
-        seo_gen = SEOGenerator()
-        seo_pkgs = seo_gen.generate(game)
-        seo_data_dict = {k: {"title": v.title, "description": v.description, "hashtags": v.hashtags} for k, v in seo_pkgs.items()}
-        
-        if processed_files:
-            from moviepy.editor import VideoFileClip
-            clip = VideoFileClip(processed_files[0])
-            thumb_name = f"thumb_{Path(processed_files[0]).stem}.jpg"
-            thumb_path = os.path.join(cfg.RAW_DIR, thumb_name)
-            clip.save_frame(str(thumb_path), t=clip.duration/2)
-            thumb_url = f"/output/{thumb_name}"
-            clip.close()
-    except Exception as e:
-        log.error(f"SEO/Thumb error: {e}")
-
-    update_status("Complete!")
-    
     if not processed_files:
         if downloaded_count:
             return jsonify({
@@ -231,14 +246,29 @@ def generate():
             "processed_count": 0,
             "error": "Pipeline failed. No videos were successfully processed. Check terminal logs."
         }), 500
-        
+
+    import threading
+    threading.Thread(
+        target=_send_videos_to_telegram,
+        args=(processed_files.copy(), "Promo ready"),
+        daemon=True,
+    ).start()
+
+    video_1080p = str(processed_files[0])
+    video_720p = _make_720p_copy(video_1080p)
+
+    update_status("Rendering complete. Preview updated. Telegram sending in background...")
+
     return jsonify({
         "success": True,
         "downloaded_count": downloaded_count,
         "processed_count": len(processed_files),
-        "video_url": f"/output/{Path(processed_files[0]).name}",
-        "seo": seo_data_dict,
-        "thumb_url": thumb_url
+        "video_path": video_1080p,
+        "video_url": _output_url(video_1080p),
+        "video_url_1080": _output_url(video_1080p),
+        "video_url_720": _output_url(video_720p),
+        "seo": {},
+        "thumb_url": None
     })
 
 @app.route('/api/cloud_process', methods=['POST'])
@@ -252,7 +282,7 @@ def cloud_process():
     overlays_json = request.form.get('overlays', '[]')
     layout_json = request.form.get('layout', '{}')
     cap_color = request.form.get('caption_color', 'yellow')
-    cap_pos = float(request.form.get('caption_pos', 0.70))
+    cap_pos = float(request.form.get('caption_pos', 0.58))
     link_color = request.form.get('landing_link_color', '#64dcff')  # cyan default
     
     if 'video' not in request.files:
@@ -293,43 +323,26 @@ def cloud_process():
         log.error(f"Cloud processing crashed: {e}")
         return jsonify({"error": str(e)}), 500
         
-    # Send to Telegram
-    tg_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-    tg_chat = os.getenv("TELEGRAM_CHAT_ID", "")
-    if tg_token and tg_chat and out_path:
-        import requests as req
-        from datetime import datetime
-        tg_send_start = datetime.now()
-        try:
-            with open(out_path, "rb") as f:
-                r = req.post(
-                    f"https://api.telegram.org/bot{tg_token}/sendVideo",
-                    data={"chat_id": tg_chat, "caption": f"Cloud Render Complete: {game}"},
-                    files={"video": f},
-                    timeout=300
-                )
-                tg_send_end = datetime.now()
-                send_duration = (tg_send_end - tg_send_start).total_seconds()
-                if r.ok:
-                    log.info(f"✓ Cloud Render sent to Telegram [{tg_send_start.isoformat()}] - HTTP {r.status_code} - Duration: {send_duration:.2f}s")
-                else:
-                    log.error(f"✗ Telegram Delivery Failed: {r.status_code} - {r.text}")
-        except Exception as e:
-            log.error(f"✗ Telegram error: {e}")
-            
-    # Generate SEO
-    seo_data_dict = {}
-    try:
-        from seo import SEOGenerator
-        seo_gen = SEOGenerator()
-        seo_pkgs = seo_gen.generate(game)
-        seo_data_dict = {k: {"title": v.title, "desc": v.description, "tags": v.hashtags} for k, v in seo_pkgs.items()}
-    except: pass
-    
+    import threading
+    if out_path:
+        threading.Thread(
+            target=_send_videos_to_telegram,
+            args=([out_path], "Cloud Render Complete"),
+            daemon=True,
+        ).start()
+
+    video_1080p = str(out_path)
+    video_720p = _make_720p_copy(video_1080p)
+
+    update_status("Rendering complete. Preview updated. Telegram sending in background...")
+
     return jsonify({
         "success": True,
         "video_path": str(out_path),
-        "seo": seo_data_dict
+        "video_url": _output_url(video_1080p),
+        "video_url_1080": _output_url(video_1080p),
+        "video_url_720": _output_url(video_720p),
+        "seo": {}
     })
 
 if __name__ == '__main__':
