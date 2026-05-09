@@ -245,16 +245,19 @@ class VideoProcessor:
                 
                 wrapped = "\n".join(textwrap.wrap(txt, width=18))
                 
-                # Create a high-contrast subtitle card.
-                box_w = min(w - 80, 1040)
-                box_h = 260
-                img = Image.new('RGBA', (box_w, box_h), (255, 255, 255, 0))
-                draw = ImageDraw.Draw(img)
-                
                 stroke_width = max(4, font.size // 18 if hasattr(font, "size") else 4)
-                bbox = draw.multiline_textbbox((0, 0), wrapped, font=font, align="center", spacing=10, stroke_width=stroke_width)
+                
+                # Calculate dimensions first to prevent text from being cut off
+                dummy_draw = ImageDraw.Draw(Image.new('RGBA', (1, 1)))
+                bbox = dummy_draw.multiline_textbbox((0, 0), wrapped, font=font, align="center", spacing=10, stroke_width=stroke_width)
                 tw = bbox[2] - bbox[0]
                 th = bbox[3] - bbox[1]
+
+                box_w = min(w - 80, 1040)
+                box_h = max(260, int(th + 120))  # Dynamically size height
+                
+                img = Image.new('RGBA', (box_w, box_h), (255, 255, 255, 0))
+                draw = ImageDraw.Draw(img)
 
                 pad_x = 38
                 pad_y = 24
@@ -292,23 +295,28 @@ class VideoProcessor:
 
     # ── CPA Link Bar (shown during gameplay, first 25 seconds) ─────────────────
 
-    def _make_cpa_bar(self, landing_url: str, duration: float, link_color: str = "#64dcff") -> ImageClip:
+    def _make_cpa_bar(self, landing_url: str, duration: float, link_color: str = "#64dcff", game_name: str = "") -> ImageClip:
         """Semi-transparent bar at the bottom with the CPA link."""
-        bar_h = 165
+        bar_h = 240
         img = Image.new("RGBA", (TARGET_W, bar_h), (0, 0, 0, 210))
         draw = ImageDraw.Draw(img)
 
         try:
-            font_big   = ImageFont.truetype(str(FONT_PATH), 42) if FONT_PATH.exists() else ImageFont.load_default()
-            font_small = ImageFont.truetype(str(FONT_PATH), 34) if FONT_PATH.exists() else ImageFont.load_default()
+            font_big   = ImageFont.truetype(str(FONT_PATH), 64) if FONT_PATH.exists() else ImageFont.load_default()
+            font_small = ImageFont.truetype(str(FONT_PATH), 52) if FONT_PATH.exists() else ImageFont.load_default()
         except Exception:
             font_big = font_small = ImageFont.load_default()
 
         # CTA text
-        cta = "Download FREE MOD Now!"
+        gn_lower = game_name.lower()
+        if "mod" in gn_lower or "hack" in gn_lower or "unlimited" in gn_lower:
+            cta = "Download FREE MOD Now!"
+        else:
+            cta = "Check out the Secret Here!"
+            
         bbox = draw.textbbox((0, 0), cta, font=font_big)
         tw = bbox[2] - bbox[0]
-        draw.text(((TARGET_W - tw) // 2, 16), cta, fill=(0, 255, 100, 255), font=font_big)
+        draw.text(((TARGET_W - tw) // 2, 24), cta, fill=(0, 255, 100, 255), font=font_big)
 
         # URL text - convert hex color to RGB tuple
         try:
@@ -320,8 +328,8 @@ class VideoProcessor:
         
         bbox2 = draw.textbbox((0, 0), landing_url, font=font_small)
         tw2 = bbox2[2] - bbox2[0]
-        draw.rounded_rectangle([(TARGET_W - tw2) // 2 - 18, 88, (TARGET_W + tw2) // 2 + 18, 88 + 44], radius=14, fill=(0, 0, 0, 160))
-        draw.text(((TARGET_W - tw2) // 2, 92), landing_url, fill=link_fill, font=font_small)
+        draw.rounded_rectangle([(TARGET_W - tw2) // 2 - 24, 120, (TARGET_W + tw2) // 2 + 24, 120 + 70], radius=20, fill=(0, 0, 0, 160))
+        draw.text(((TARGET_W - tw2) // 2, 126), landing_url, fill=link_fill, font=font_small)
 
         tmp = Path(tempfile.mktemp(suffix=".png"))
         img.save(str(tmp))
@@ -364,8 +372,8 @@ class VideoProcessor:
         ss_py = (TARGET_H - nh) // 2 + int(ss_oy * TARGET_H)
 
         try:
-            sticker_font = ImageFont.truetype(str(FONT_PATH), 48) if FONT_PATH.exists() else ImageFont.load_default()
-            base_fs = max(15, int(30 * link_scale))
+            sticker_font = ImageFont.truetype(str(FONT_PATH), 144) if FONT_PATH.exists() else ImageFont.load_default()
+            base_fs = max(45, int(90 * link_scale))
             link_font = ImageFont.truetype(str(FONT_PATH), base_fs) if FONT_PATH.exists() else ImageFont.load_default()
         except Exception:
             sticker_font = link_font = ImageFont.load_default()
@@ -380,8 +388,8 @@ class VideoProcessor:
 
             # Pulse factor: oscillates 0.85 to 1.15 over 0.6s
             pulse = 1.0 + 0.15 * math.sin(t * 10)
-            # Bounce: oscillates +-15px over 0.8s
-            bounce = int(15 * math.sin(t * 8))
+            # Bounce: oscillates +-30px over 0.8s
+            bounce = int(30 * math.sin(t * 8))
 
             for item in items:
                 cx = int(item["cx"] * TARGET_W)
@@ -391,7 +399,7 @@ class VideoProcessor:
                 if item["kind"] == "circle" and "circle" in self.sticker_cache:
                     # Render circle asset with animation
                     circle_img = self._sticker_frame(self.sticker_cache["circle"], t)
-                    scaled_sz = int(80 * sz * pulse)
+                    scaled_sz = int(240 * sz * pulse)
                     scaled_circle = circle_img.resize((scaled_sz, scaled_sz), Image.LANCZOS)
                     paste_x = cx - scaled_sz // 2
                     paste_y = cy - scaled_sz // 2
@@ -401,7 +409,7 @@ class VideoProcessor:
                     # Render arrow asset with bounce animation
                     arrow_img = self._sticker_frame(self.sticker_cache["arrow"], t)
                     ay = cy + bounce
-                    scaled_sz = int(80 * sz)
+                    scaled_sz = int(240 * sz)
                     scaled_arrow = arrow_img.resize((scaled_sz, int(scaled_sz * 1.3)), Image.LANCZOS)
                     paste_x = cx - scaled_sz // 2
                     paste_y = ay - int(scaled_sz * 1.3) // 2
@@ -411,7 +419,7 @@ class VideoProcessor:
                     # Render finger asset with bounce animation
                     finger_img = self._sticker_frame(self.sticker_cache["finger"], t)
                     fy = cy + bounce
-                    scaled_sz = int(100 * sz)
+                    scaled_sz = int(300 * sz)
                     scaled_finger = finger_img.resize((scaled_sz, scaled_sz), Image.LANCZOS)
                     paste_x = cx - scaled_sz // 2
                     paste_y = fy - scaled_sz // 2
@@ -419,15 +427,15 @@ class VideoProcessor:
 
                 elif item["kind"] == "text":
                     txt = item.get("text", "Click Here!")
-                    fs = max(20, int(48 * sz * pulse))
+                    fs = max(40, int(144 * sz * pulse))
                     try: tf = ImageFont.truetype(str(FONT_PATH), fs) if FONT_PATH.exists() else ImageFont.load_default()
                     except: tf = ImageFont.load_default()
                     bb = draw.textbbox((0,0), txt, font=tf)
                     tw, th = bb[2]-bb[0], bb[3]-bb[1]
-                    pad = 12
+                    pad = 24
                     draw.rounded_rectangle(
                         [cx-tw//2-pad, cy-th//2-pad, cx+tw//2+pad, cy+th//2+pad],
-                        radius=16, fill=(0,0,0,220))
+                        radius=24, fill=(0,0,0,220))
                     draw.text((cx-tw//2, cy-th//2), txt, fill=(255,255,0,255), font=tf)
 
             # Link text
@@ -444,8 +452,8 @@ class VideoProcessor:
             
             bb = draw.textbbox((0,0), landing_url, font=link_font)
             ltw = bb[2] - bb[0]
-            draw.rounded_rectangle([(lx-ltw//2-18, ly-24), (lx+ltw//2+18, ly+24)], radius=14, fill=(0,0,0,200))
-            draw.text((lx-ltw//2, ly-18), landing_url, fill=link_fill, font=link_font)
+            draw.rounded_rectangle([(lx-ltw//2-30, ly-36), (lx+ltw//2+30, ly+40)], radius=24, fill=(0,0,0,200))
+            draw.text((lx-ltw//2, ly-26), landing_url, fill=link_fill, font=link_font)
 
             return np.array(bg.convert("RGB"))
 
@@ -538,7 +546,7 @@ class VideoProcessor:
         _progress(70, "Adding CPA link bar...")
         try:
             cpa_duration = max(1, clip.duration - 5)  # stop 5s before end
-            cpa_bar = self._make_cpa_bar(landing_url, cpa_duration, link_color=landing_link_color)
+            cpa_bar = self._make_cpa_bar(landing_url, cpa_duration, link_color=landing_link_color, game_name=game_name)
             clip = CompositeVideoClip([clip, cpa_bar])
         except Exception as e:
             log.warning(f"CPA bar failed: {e}")
