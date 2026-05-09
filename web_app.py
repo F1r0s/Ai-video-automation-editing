@@ -28,7 +28,7 @@ log = logging.getLogger("web_app")
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = str(Path(__file__).parent / 'uploads')
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max for screenshot
+app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500 MB max for video uploads
 
 # Make sure uploads directory exists
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
