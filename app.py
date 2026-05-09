@@ -759,6 +759,12 @@ class VideoAutomationApp:
                 import tempfile
                 resp = requests.get(url, timeout=120, stream=True)
                 resp.raise_for_status()
+                
+                content_type = resp.headers.get('Content-Type', '')
+                if 'text/html' in content_type:
+                    messagebox.showerror("Download Error", "The cloud server returned a web page instead of a video. It might be sleeping or erroring.")
+                    return
+
                 suffix = ".mp4"
                 tmp_file = Path(tempfile.mktemp(suffix=suffix))
                 with open(tmp_file, "wb") as f:
