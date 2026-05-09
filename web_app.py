@@ -52,21 +52,29 @@ def _send_videos_to_telegram(processed_files, caption_prefix="Promo ready"):
     tg_chat = os.getenv("TELEGRAM_CHAT_ID", "")
 
     if not tg_token or not tg_chat:
-        update_status("Telegram not configured: set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.")
-        log.warning("Telegram not configured: missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID.")
+        err_msg = "Telegram not configured: set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID."
+        update_status(f"⚠ {err_msg}")
+        log.warning(err_msg)
         return
 
     if not processed_files:
+        update_status("⚠ No files to send to Telegram.")
         return
 
     import requests
 
     tg_batch_start = datetime.now()
-    update_status("Sending to Telegram...")
+    update_status(f"📱 Sending {len(processed_files)} video(s) to Telegram...")
+    log.info(f"Telegram: Starting send of {len(processed_files)} file(s)")
 
     for idx, fp in enumerate(processed_files, 1):
         try:
             tg_send_start = datetime.now()
+            file_size_mb = os.path.getsize(fp) / (1024 * 1024)
+            
+            log.info(f"Telegram: [{idx}/{len(processed_files)}] Sending {Path(fp).name} ({file_size_mb:.1f}MB)...")
+            update_status(f"📱 [{idx}/{len(processed_files)}] Uploading to Telegram... ({file_size_mb:.1f}MB)")
+            
             with open(fp, "rb") as f:
                 r = requests.post(
                     f"https://api.telegram.org/bot{tg_token}/sendVideo",
@@ -76,19 +84,25 @@ def _send_videos_to_telegram(processed_files, caption_prefix="Promo ready"):
                 )
             tg_send_end = datetime.now()
             send_duration = (tg_send_end - tg_send_start).total_seconds()
+            
             if r.ok:
-                log.info(f"✓ Telegram {idx}/{len(processed_files)} sent [{tg_send_start.isoformat()}] - Duration: {send_duration:.2f}s")
-                update_status(f"✓ Video {idx}/{len(processed_files)} sent to Telegram [{tg_send_end.isoformat()}]")
+                log.info(f"✓ Telegram {idx}/{len(processed_files)} sent [{tg_send_end.isoformat()}] - {send_duration:.1f}s")
+                update_status(f"✅ Telegram [{idx}/{len(processed_files)}] sent successfully! ({send_duration:.1f}s)")
             else:
-                log.error(f"Telegram Error: {r.text}")
-                update_status(f"✗ Telegram failed: {r.status_code}")
+                err_text = r.text[:200] if r.text else f"HTTP {r.status_code}"
+                log.error(f"✗ Telegram Error: {err_text}")
+                update_status(f"❌ Telegram failed ({r.status_code}): {err_text}")
+        except requests.Timeout as e:
+            log.error(f"Telegram timeout: {e}")
+            update_status(f"❌ Telegram timeout: {e}")
         except Exception as e:
-            log.error(f"Telegram error: {e}")
-            update_status(f"✗ Telegram failed: {e}")
+            log.error(f"Telegram error: {type(e).__name__}: {e}")
+            update_status(f"❌ Telegram error: {type(e).__name__}: {e}")
 
     tg_batch_end = datetime.now()
     total_duration = (tg_batch_end - tg_batch_start).total_seconds()
-    log.info(f"Telegram batch complete: {total_duration:.2f}s total")
+    log.info(f"Telegram batch complete: {total_duration:.1f}s total for {len(processed_files)} file(s)")
+    update_status(f"✅ All Telegram deliveries complete ({total_duration:.1f}s)")
 
 
 def _make_720p_copy(source_path: str) -> str:

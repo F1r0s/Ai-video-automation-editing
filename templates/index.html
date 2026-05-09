@@ -384,20 +384,38 @@
             const videoUrl720 = data.video_url_720 || data.video_url || data.video_path || "";
             const videoUrl = videoUrl1080;
             
+            // DEBUG: Log full response to console
+            console.log("API Response:", {
+                ok: response.ok,
+                data: data,
+                videoUrl1080: videoUrl1080,
+                videoUrl720: videoUrl720,
+                videoUrl: videoUrl,
+                hasVideoContainer: !!document.getElementById('video_output_container')
+            });
+            
             if (response.ok) {
                 status.innerText = `✅ Success! Rendering complete. Preview and download ready.`;
                 status.style.color = "#00e676";
                 
                 // Show Video Output
                 if (videoUrl) {
-                    document.getElementById('video_output_container').style.display = 'block';
-                    const vidEl = document.getElementById('output_video');
-                    vidEl.src = videoUrl;
-                    
-                    document.getElementById('download_1080p').href = videoUrl1080;
-                    document.getElementById('download_720p').href = videoUrl720;
-                    
-                    vidEl.play();
+                    const container = document.getElementById('video_output_container');
+                    if (container) {
+                        container.style.display = 'block';
+                        const vidEl = document.getElementById('output_video');
+                        vidEl.src = videoUrl;
+                        
+                        document.getElementById('download_1080p').href = videoUrl1080;
+                        document.getElementById('download_720p').href = videoUrl720;
+                        
+                        vidEl.play();
+                        console.log("Video displayed successfully:", videoUrl);
+                    } else {
+                        console.error("video_output_container not found!");
+                    }
+                } else {
+                    console.warn("No videoUrl available. Data:", data);
                 }
 
                 // Show SEO & Thumbnail
@@ -436,6 +454,23 @@
         btn.disabled = false;
         cancelBtn.style.display = 'none';
         loader.style.display = 'none';
+        
+        // Restore all sticker lock states
+        stickerLockStates.forEach(state => {
+            state.obj.set({
+                selectable: state.selectable,
+                evented: state.evented,
+                lockMovementX: state.lockMovementX,
+                lockMovementY: state.lockMovementY,
+                lockScalingX: state.lockScalingX,
+                lockScalingY: state.lockScalingY,
+                lockRotation: state.lockRotation,
+                hasControls: state.hasControls,
+                hasBorders: state.hasBorders
+            });
+        });
+        canvas.renderAll();
+        
         if (bgImage) {
             bgImage.selectable = true;
             bgImage.evented = true;
