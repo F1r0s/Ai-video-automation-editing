@@ -240,8 +240,29 @@ class VideoProcessor:
                     file=(audio_path.name, file.read()),
                     model="whisper-large-v3",
                     response_format="verbose_json",
+                    timestamp_granularities=["word"]
                 )
-                # Convert Groq segment objects to dicts
+                words = getattr(transcription, "words", [])
+                if words:
+                    segments = []
+                    chunk = []
+                    for w in words:
+                        chunk.append(w)
+                        word_str = w.get("word", "") if isinstance(w, dict) else getattr(w, "word", "")
+                        if len(chunk) >= 2 or word_str.strip().endswith((".", "?", "!", ",")):
+                            start = chunk[0].get("start", 0) if isinstance(chunk[0], dict) else getattr(chunk[0], "start", 0)
+                            end = chunk[-1].get("end", 0) if isinstance(chunk[-1], dict) else getattr(chunk[-1], "end", 0)
+                            text = " ".join((c.get("word", "") if isinstance(c, dict) else getattr(c, "word", "")).strip() for c in chunk)
+                            segments.append({"start": start, "end": end, "text": text})
+                            chunk = []
+                    if chunk:
+                        start = chunk[0].get("start", 0) if isinstance(chunk[0], dict) else getattr(chunk[0], "start", 0)
+                        end = chunk[-1].get("end", 0) if isinstance(chunk[-1], dict) else getattr(chunk[-1], "end", 0)
+                        text = " ".join((c.get("word", "") if isinstance(c, dict) else getattr(c, "word", "")).strip() for c in chunk)
+                        segments.append({"start": start, "end": end, "text": text})
+                    return segments
+                
+                # Fallback to segments if words not available
                 segments = []
                 for s in getattr(transcription, "segments", []):
                     segments.append({
@@ -274,7 +295,7 @@ class VideoProcessor:
                 if not txt or dur <= 0:
                     continue
                 
-                wrapped = "\n".join(textwrap.wrap(txt, width=18))
+                wrapped = "\n".join(textwrap.wrap(txt, width=25))
                 
                 stroke_width = max(4, font.size // 18 if hasattr(font, "size") else 4)
                 

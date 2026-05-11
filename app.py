@@ -412,6 +412,7 @@ class CanvasEditor:
         # 2. Check if clicked inside any item (top-most first)
         clicked_item = None
         for item in reversed(self.items):
+            if item.kind == "safe_zone": continue
             bbox = item.get_bbox()
             if bbox and bbox[0] <= e.x <= bbox[2] and bbox[1] <= e.y <= bbox[3]:
                 clicked_item = item
