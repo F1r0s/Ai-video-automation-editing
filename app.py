@@ -56,7 +56,7 @@ class CanvasItem:
             self.pil_img = Image.open(path).convert("RGBA")
 
         # Preload sticker GIF frames when available
-        if kind in ("circle", "arrow", "finger"):
+        if kind in ("circle", "arrow", "finger", "cartoon"):
             try:
                 self._load_gif_frames()
             except Exception:
@@ -204,7 +204,10 @@ class CanvasItem:
                 self._gif_durations = durations
                 self._gif_index = 0
                 CanvasItem._GIF_CACHE[self.kind] = (frames, durations)
-        except Exception:
+        except Exception as e:
+            print(f"FAILED TO LOAD GIF {self.kind}: {e}")
+            import traceback
+            traceback.print_exc()
             self._gif_frames = None
             self._gif_durations = None
 
