@@ -135,21 +135,26 @@ class VideoProcessor:
 
     def _elevenlabs_tts(self, text: str, out: Path) -> bool:
         if not self.el_key:
+            log.warning("ElevenLabs skipped: no API key")
             return False
+        log.info(f"ElevenLabs TTS: using voice_id={self.el_voice_id}")
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{self.el_voice_id}"
         headers = {"xi-api-key": self.el_key, "Content-Type": "application/json"}
         payload = {
             "text": text,
-            "model_id": "eleven_monolingual_v1",
-            "voice_settings": {"stability": 0.5, "similarity_boost": 0.8},
+            "model_id": "eleven_turbo_v2_5",
+            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
         }
         try:
             r = requests.post(url, json=payload, headers=headers, timeout=60)
-            r.raise_for_status()
+            if not r.ok:
+                log.warning(f"ElevenLabs failed: HTTP {r.status_code} — {r.text[:200]}")
+                return False
             out.write_bytes(r.content)
+            log.info(f"ElevenLabs TTS success: {len(r.content)} bytes saved")
             return True
         except Exception as e:
-            log.warning(f"ElevenLabs failed: {e}")
+            log.warning(f"ElevenLabs exception: {e}")
             return False
 
     def _gtts_fallback(self, text: str, out: Path) -> bool:
@@ -231,8 +236,9 @@ class VideoProcessor:
     def _transcribe(self, audio_path: Path) -> list[dict]:
         """Transcribe audio using Groq Whisper (whisper-large-v3)."""
         if not self.groq_client:
-            log.warning("No Groq client available for transcription.")
+            log.warning("Transcription skipped: no Groq client (GROQ_API_KEY missing or not passed to processor)")
             return []
+        log.info(f"Transcribing audio: {audio_path.name} ({audio_path.stat().st_size if audio_path.exists() else 'missing'} bytes)")
 
         try:
             with open(audio_path, "rb") as file:
