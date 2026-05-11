@@ -556,11 +556,71 @@ class VideoProcessor:
 
     # ── Reward-First helpers ───────────────────────────────────────────────────
 
+    def _find_best_hook_start(self, video_path: str, hook_duration: float = 5.0) -> float:
+        """
+        Scan the video to find the most energetic/exciting 5-second window.
+        Uses frame-to-frame pixel variance as a motion energy metric.
+        Returns the best start timestamp in seconds.
+        """
+        import numpy as np
+        try:
+            clip = VideoFileClip(video_path)
+            total = clip.duration
+            if total <= hook_duration:
+                clip.close()
+                return 0.0
+
+            # Sample at 2fps to keep it fast
+            sample_fps = 2.0
+            step = 1.0 / sample_fps
+            times = [i * step for i in range(int(total * sample_fps))]
+
+            # Compute per-frame energy (mean absolute difference from previous frame)
+            energies = []
+            prev_frame = None
+            for t in times:
+                try:
+                    frame = clip.get_frame(t)
+                    small = frame[::4, ::4]  # downsample 4x for speed
+                    if prev_frame is not None:
+                        diff = np.mean(np.abs(small.astype(float) - prev_frame.astype(float)))
+                        energies.append((t, diff))
+                    prev_frame = small
+                except Exception:
+                    continue
+
+            clip.close()
+
+            if not energies:
+                return 0.0
+
+            # Compute sliding window energy over hook_duration
+            window_frames = max(1, int(hook_duration * sample_fps))
+            best_start = 0.0
+            best_energy = -1.0
+
+            for i in range(len(energies) - window_frames + 1):
+                window_energy = sum(e for _, e in energies[i:i + window_frames])
+                if window_energy > best_energy:
+                    best_energy = window_energy
+                    best_start = energies[i][0]
+                    # Don't go so far that we can't fit hook_duration
+                    if best_start + hook_duration > total:
+                        best_start = max(0.0, total - hook_duration)
+
+            log.info(f"Best hook window found at t={best_start:.1f}s (energy={best_energy:.1f})")
+            return best_start
+
+        except Exception as e:
+            log.warning(f"Hook energy scan failed, using t=0: {e}")
+            return 0.0
+
     def _prepare_hook(self, video_path: str, hook_duration: float = 5.0):
-        """Load scraped gameplay, force 9:16, trim to hook_duration, strip audio."""
+        """Load scraped gameplay, find the most energetic 5s window, force 9:16, strip audio."""
+        best_start = self._find_best_hook_start(video_path, hook_duration)
         clip = VideoFileClip(video_path)
-        if clip.duration > hook_duration:
-            clip = clip.subclip(0, hook_duration)
+        end = min(clip.duration, best_start + hook_duration)
+        clip = clip.subclip(best_start, end)
         clip = self._force_vertical(clip)
         clip = clip.without_audio()
         return clip

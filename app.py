@@ -676,19 +676,43 @@ class VideoAutomationApp:
         output_frame = tk.Frame(left, bg=BG_CARD, highlightthickness=1, highlightbackground=ACCENT)
         output_frame.pack(fill="x", pady=(8, 0))
         out_hdr = tk.Frame(output_frame, bg=BG_CARD)
-        out_hdr.pack(fill="x", padx=10, pady=(8, 2))
+        out_hdr.pack(fill="x", padx=10, pady=(8, 4))
         tk.Label(out_hdr, text="Rendered Output", font=("Segoe UI", 10, "bold"), fg=ACCENT, bg=BG_CARD).pack(side="left")
-        self.export_btn = tk.Button(
-            out_hdr, text="▶ Export to Preview Studio",
+
+        # Thumbnail preview area
+        self.thumb_label = tk.Label(output_frame, bg=BG_CARD, text="🎬 No output yet",
+                                     font=("Segoe UI", 9), fg=FG_DIM, cursor="hand2",
+                                     relief="flat", width=40, height=4)
+        self.thumb_label.pack(fill="x", padx=10, pady=(0, 4))
+        self.thumb_label.bind("<Button-1>", self._open_output_url)
+
+        # Export buttons row (hidden until render completes)
+        self.export_btns_frame = tk.Frame(output_frame, bg=BG_CARD)
+        self.export_btns_frame.pack(fill="x", padx=10, pady=(0, 8))
+        self.btn_export_1080 = tk.Button(
+            self.export_btns_frame, text="⬇ Export 1080p",
             font=("Segoe UI", 9, "bold"), fg="#fff", bg="#6200ea",
-            relief="flat", padx=10, pady=3,
-            command=self._export_to_preview
+            relief="flat", padx=10, pady=5,
+            command=lambda: self._do_export("1080")
         )
-        self.export_btn.pack(side="right")
-        self.output_url_var = tk.StringVar(value="No output yet")
-        self.output_link = tk.Label(output_frame, textvariable=self.output_url_var, fg=GREEN, bg=BG_CARD, anchor="w", justify="left", wraplength=360, cursor="hand2")
-        self.output_link.pack(fill="x", padx=10, pady=(0, 8))
-        self.output_link.bind("<Button-1>", self._open_output_url)
+        self.btn_export_720 = tk.Button(
+            self.export_btns_frame, text="⬇ Export 720p",
+            font=("Segoe UI", 9, "bold"), fg="#fff", bg="#37474f",
+            relief="flat", padx=10, pady=5,
+            command=lambda: self._do_export("720")
+        )
+        self.btn_open_folder = tk.Button(
+            self.export_btns_frame, text="📂 Open Folder",
+            font=("Segoe UI", 9), fg=FG, bg=BG_INPUT,
+            relief="flat", padx=8, pady=5,
+            command=self._open_output_folder
+        )
+        # Keep a reference to last rendered path
+        self._last_rendered_path = ""
+        self.output_url_var = tk.StringVar(value="")
+        # Hide buttons initially
+        for w in (self.btn_export_1080, self.btn_export_720, self.btn_open_folder):
+            w.pack_forget()
 
         # RIGHT PANEL
         right = tk.Frame(self.root, bg=BG)
@@ -823,7 +847,53 @@ class VideoAutomationApp:
 
     def _set_output_url(self, url):
         self.output_url = url
-        self.output_url_var.set(url or "No output yet")
+        self._last_rendered_path = url or ""
+        self.output_url_var.set(url or "")
+        # Update thumbnail label
+        if url and url != "No output yet":
+            name = Path(url).name if (os.path.exists(url) or "." in url.split("/")[-1]) else url
+            self.thumb_label.configure(text=f"🎬 {name}", fg=GREEN)
+            # Show export buttons
+            self.btn_export_1080.pack(side="left", padx=(0, 6))
+            self.btn_export_720.pack(side="left", padx=(0, 6))
+            self.btn_open_folder.pack(side="left")
+        else:
+            self.thumb_label.configure(text="🎬 No output yet", fg=FG_DIM)
+            for w in (self.btn_export_1080, self.btn_export_720, self.btn_open_folder):
+                w.pack_forget()
+
+    def _do_export(self, quality: str):
+        """Export the rendered video at the given quality."""
+        url = self._last_rendered_path
+        if not url:
+            messagebox.showinfo("No Output", "No rendered video found.\nRun GENERATE first.")
+            return
+        if quality == "720" and os.path.exists(url):
+            self._log("Converting to 720p...")
+            threading.Thread(target=self._export_720p_thread, args=(url,), daemon=True).start()
+        else:
+            self._export_to_preview()
+
+    def _export_720p_thread(self, source_path: str):
+        result = self._make_720p_copy(source_path)
+        self.root.after(0, self._log, f"✓ 720p saved: {Path(result).name}")
+        self.root.after(0, self._set_output_url, result)
+        try:
+            import sys
+            if sys.platform == "win32":
+                os.startfile(result)
+        except Exception:
+            pass
+
+    def _open_output_folder(self):
+        url = self._last_rendered_path
+        if url and os.path.exists(url):
+            folder = str(Path(url).parent)
+            try:
+                import subprocess
+                subprocess.Popen(f'explorer "{folder}"')
+            except Exception:
+                pass
 
     def _open_output_url(self, _event=None):
         url = getattr(self, "output_url", "")
@@ -1109,8 +1179,8 @@ class VideoAutomationApp:
         source = Path(source_path)
         target = source.with_name(f"{source.stem}_720p{source.suffix}")
         try:
-            from moviepy.editor import VideoFileClip
-            clip = VideoFileClip(str(source))
+            from moviepy.editor import VideoFileClip as VFC
+            clip = VFC(str(source))
             try:
                 clip.resize(height=720).write_videofile(
                     str(target),
@@ -1119,7 +1189,7 @@ class VideoAutomationApp:
                     fps=30,
                     preset="fast",
                     threads=4,
-                    pix_fmt="yuv420p",
+                    ffmpeg_params=["-pix_fmt", "yuv420p"],
                     logger=None,
                 )
             finally:
