@@ -542,6 +542,7 @@ class VideoAutomationApp:
         self.screenshot_path = tk.StringVar()
         self.landing_url = tk.StringVar()
         self.landing_link_color = tk.StringVar(value="#64dcff")
+        self.manual_recording_path = tk.StringVar()
         self.max_videos = tk.IntVar(value=3)
         self.render_local = tk.BooleanVar(value=True)
         self.render_cloud = tk.BooleanVar(value=False)
@@ -585,6 +586,7 @@ class VideoAutomationApp:
         self._step_spin(left,"2","Number of Videos",self.max_videos)
         self.screenshot_path_label = self._step(left,"3","Channel Screenshot",self.screenshot_path, btn="Choose...",cmd=self._pick_ss)
         self._step(left,"4","CPA Landing Page Link",self.landing_url,entry=True)
+        self.recording_path_label = self._step(left,"5","Screen Recording (Walkthrough)",self.manual_recording_path, btn="Choose...",cmd=self._pick_recording)
 
         # Caption Settings
         self.caption_color = tk.StringVar(value="yellow")
@@ -777,6 +779,12 @@ class VideoAutomationApp:
             ss.draw()
             self._update_link()
 
+    def _pick_recording(self):
+        p = filedialog.askopenfilename(title="Screen Recording", filetypes=[("Videos","*.mp4 *.mov *.avi *.mkv *.webm")])
+        if p:
+            self.manual_recording_path.set(p)
+            self._log(f"Screen recording selected: {Path(p).name}")
+
     def _pick_link_color(self):
         from tkinter.colorchooser import askcolor
         color = askcolor(color=self.landing_link_color.get(), title="Choose Landing Link Color")
@@ -909,11 +917,16 @@ class VideoAutomationApp:
         layout=self.editor.get_layout_data()
         cloud_mode = self.render_cloud.get()
         
-        self._log(f"Starting: {g} {'(Cloud Mode)' if cloud_mode else '(Local Mode)'}")
-        threading.Thread(target=self._run, args=(g,c,ss,u,ov,layout,cloud_mode), daemon=True).start()
+        rec = self.manual_recording_path.get().strip()
+        reward_mode = bool(rec and os.path.exists(rec))
+        
+        self._log(f"Starting: {g} {'(Reward-First)' if reward_mode else '(Legacy)'} {'(Cloud)' if cloud_mode else '(Local)'}")
+        threading.Thread(target=self._run, args=(g,c,ss,u,ov,layout,cloud_mode,rec), daemon=True).start()
 
-    def _run(self, game, mx, ss, url, overlays, layout, cloud_mode):
+    def _run(self, game, mx, ss, url, overlays, layout, cloud_mode, recording_path=""):
         cfg=Config()
+        reward_mode = bool(recording_path and os.path.exists(recording_path))
+        
         self.root.after(0,self._sts,"Searching...",ACCENT)
         self.root.after(0,self._log,f"\n[1/3] Searching: '{game} MOD gameplay'...")
         scraper=VideoScraper(config=cfg)
@@ -945,8 +958,14 @@ class VideoAutomationApp:
             t=m.get("title","?")[:50]
             self.root.after(0,self._sts,f"{i}/{len(vids)}: {t}",ACCENT)
             self.root.after(0,self._log,f"\n[2/3] Video {i}/{len(vids)}: {t}")
-            self.root.after(0,self._log,"  Downloading...")
-            raw=scraper.download(m)
+            
+            # Download: hook (5s) for reward mode, full for legacy
+            if reward_mode:
+                self.root.after(0,self._log,"  Downloading 5s hook...")
+                raw=scraper.download_hook(m, hook_seconds=5)
+            else:
+                self.root.after(0,self._log,"  Downloading...")
+                raw=scraper.download(m)
             if not raw: self.root.after(0,self._log,"  Failed."); continue
             downloaded += 1
             self.root.after(0,self._log,f"  Got: {raw.name}"); self._wait()
@@ -957,6 +976,8 @@ class VideoAutomationApp:
                     files = {'video': open(str(raw), 'rb')}
                     if ss and os.path.exists(ss):
                         files['screenshot'] = open(ss, 'rb')
+                    if reward_mode:
+                        files['manual_recording'] = open(recording_path, 'rb')
                     data = {
                         'game': game, 'url': url,
                         'caption_color': self.caption_color.get(),
@@ -966,7 +987,8 @@ class VideoAutomationApp:
                         'layout': json.dumps(layout),
                         'export_quality': export_quality,
                         'elevenlabs_voice_id': os.getenv("ELEVENLABS_VOICE_ID", ""),
-                        'elevenlabs_key': os.getenv("ELEVENLABS_API_KEY", "")
+                        'elevenlabs_key': os.getenv("ELEVENLABS_API_KEY", ""),
+                        'mode': 'reward_first' if reward_mode else 'legacy'
                     }
                     resp = req.post(f"{cloud_url}/api/cloud_process", data=data, files=files, timeout=1800)
                     if resp.ok:
@@ -988,19 +1010,35 @@ class VideoAutomationApp:
                     else:
                         self.root.after(0, self._log, f"  ✗ Cloud Error ({resp.status_code}): {resp.text}")
                 else:
-                    self.root.after(0, self._log, "  Rendering locally...")
-                    out_path = processor.process(
-                        input_path=str(raw),
-                        game_name=game,
-                        channel_screenshot=ss,
-                        landing_url=url,
-                        progress_callback=lambda p, m: self.root.after(0, self._log, f"  [{p}%] {m}"),
-                        overlay_data=overlays,
-                        layout=layout,
-                        caption_color=self.caption_color.get(),
-                        caption_pos=self.caption_pos.get(),
-                        landing_link_color=self.landing_link_color.get()
-                    )
+                    if reward_mode:
+                        self.root.after(0, self._log, "  Rendering Reward-First locally...")
+                        out_path = processor.process_reward_first(
+                            scraped_video_path=str(raw),
+                            manual_recording_path=recording_path,
+                            game_name=game,
+                            channel_screenshot=ss,
+                            landing_url=url,
+                            overlay_data=overlays,
+                            layout=layout,
+                            caption_color=self.caption_color.get(),
+                            caption_pos=self.caption_pos.get(),
+                            landing_link_color=self.landing_link_color.get(),
+                            progress_callback=lambda p, m: self.root.after(0, self._log, f"  [{p}%] {m}"),
+                        )
+                    else:
+                        self.root.after(0, self._log, "  Rendering locally...")
+                        out_path = processor.process(
+                            input_path=str(raw),
+                            game_name=game,
+                            channel_screenshot=ss,
+                            landing_url=url,
+                            progress_callback=lambda p, m: self.root.after(0, self._log, f"  [{p}%] {m}"),
+                            overlay_data=overlays,
+                            layout=layout,
+                            caption_color=self.caption_color.get(),
+                            caption_pos=self.caption_pos.get(),
+                            landing_link_color=self.landing_link_color.get()
+                        )
                     final_path = str(out_path)
                     if export_quality == "720":
                         final_path = self._make_720p_copy(final_path)

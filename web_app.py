@@ -291,6 +291,7 @@ def cloud_process():
     """
     Endpoint for the Mobile/Termux client. 
     Receives raw video, processes it with AI, and sends to Telegram.
+    Supports both legacy and reward-first modes.
     """
     game = request.form.get('game', '').strip()
     url = request.form.get('url', '').strip()
@@ -298,13 +299,15 @@ def cloud_process():
     layout_json = request.form.get('layout', '{}')
     cap_color = request.form.get('caption_color', 'yellow')
     cap_pos = float(request.form.get('caption_pos', 0.58))
-    link_color = request.form.get('landing_link_color', '#64dcff')  # cyan default
+    link_color = request.form.get('landing_link_color', '#64dcff')
+    mode = request.form.get('mode', 'legacy')
     
     if 'video' not in request.files:
         return jsonify({"error": "No video file provided"}), 400
         
     video_file = request.files['video']
     screenshot_file = request.files.get('screenshot')
+    recording_file = request.files.get('manual_recording')
     
     # Save uploaded raw video
     raw_path = Path(app.config['UPLOAD_FOLDER']) / secure_filename(video_file.filename or 'mobile_upload.mp4')
@@ -314,6 +317,12 @@ def cloud_process():
     screenshot_path = str(Path(app.config['UPLOAD_FOLDER']) / "mobile_ss.png")
     if screenshot_file:
         screenshot_file.save(screenshot_path)
+    
+    # Save manual recording if provided (reward-first mode)
+    recording_path = ""
+    if recording_file:
+        recording_path = str(Path(app.config['UPLOAD_FOLDER']) / secure_filename(recording_file.filename or 'manual_recording.mp4'))
+        recording_file.save(recording_path)
     
     # Process Video
     req_el_key = request.form.get('elevenlabs_key', '').strip()
@@ -326,18 +335,35 @@ def cloud_process():
     )
     
     try:
-        out_path = processor.process(
-            input_path=str(raw_path),
-            game_name=game,
-            channel_screenshot=screenshot_path if screenshot_file else "",
-            landing_url=url,
-            progress_callback=lambda p, m: log.info(f"Cloud Process [{p}%]: {m}"),
-            overlay_data=json.loads(overlays_json),
-            layout=json.loads(layout_json),
-            caption_color=cap_color,
-            caption_pos=cap_pos,
-            landing_link_color=link_color
-        )
+        if mode == 'reward_first' and recording_path:
+            log.info(f"Cloud: Reward-First mode for {game}")
+            out_path = processor.process_reward_first(
+                scraped_video_path=str(raw_path),
+                manual_recording_path=recording_path,
+                game_name=game,
+                channel_screenshot=screenshot_path if screenshot_file else "",
+                landing_url=url,
+                overlay_data=json.loads(overlays_json),
+                layout=json.loads(layout_json),
+                caption_color=cap_color,
+                caption_pos=cap_pos,
+                landing_link_color=link_color,
+                progress_callback=lambda p, m: log.info(f"Cloud Reward [{p}%]: {m}"),
+            )
+        else:
+            log.info(f"Cloud: Legacy mode for {game}")
+            out_path = processor.process(
+                input_path=str(raw_path),
+                game_name=game,
+                channel_screenshot=screenshot_path if screenshot_file else "",
+                landing_url=url,
+                progress_callback=lambda p, m: log.info(f"Cloud Process [{p}%]: {m}"),
+                overlay_data=json.loads(overlays_json),
+                layout=json.loads(layout_json),
+                caption_color=cap_color,
+                caption_pos=cap_pos,
+                landing_link_color=link_color
+            )
     except Exception as e:
         log.error(f"Cloud processing crashed: {e}")
         return jsonify({"error": str(e)}), 500

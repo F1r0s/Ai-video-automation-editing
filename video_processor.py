@@ -33,6 +33,7 @@ if not hasattr(Image, 'ANTIALIAS'):
 from moviepy.editor import (
     VideoFileClip, AudioFileClip, CompositeVideoClip,
     ImageClip, TextClip, ColorClip, concatenate_audioclips,
+    concatenate_videoclips,
 )
 from moviepy.video.fx.all import crop
 
@@ -553,7 +554,232 @@ class VideoProcessor:
             clip = crop(clip, y_center=h / 2, height=new_h)
         return clip.resize((TARGET_W, TARGET_H))
 
-    # ── Main pipeline ──────────────────────────────────────────────────────────
+    # ── Reward-First helpers ───────────────────────────────────────────────────
+
+    def _prepare_hook(self, video_path: str, hook_duration: float = 5.0):
+        """Load scraped gameplay, force 9:16, trim to hook_duration, strip audio."""
+        clip = VideoFileClip(video_path)
+        if clip.duration > hook_duration:
+            clip = clip.subclip(0, hook_duration)
+        clip = self._force_vertical(clip)
+        clip = clip.without_audio()
+        return clip
+
+    def _validate_recording(self, recording_path: str):
+        """Load user's manual screen recording, force 9:16, strip audio."""
+        clip = VideoFileClip(recording_path)
+        clip = self._force_vertical(clip)
+        clip = clip.without_audio()
+        return clip
+
+    def _generate_reward_script(self, game_name: str, landing_url: str = "") -> str:
+        """Generate a bridging script for the reward-first workflow using Llama 3."""
+        if not self.groq_client:
+            return (
+                f"Wait. Look at this {game_name} gameplay. "
+                f"Want this on your device? I will show you exactly how. "
+                f"Go to the link on screen. Tap download. It is completely free. Go now!"
+            )
+
+        prompt = f"""Write a short, punchy 30-second voiceover script for a viral TikTok video about '{game_name}'.
+
+The video has TWO parts:
+Part 1 (first 5 seconds): Shows insane, jaw-dropping gameplay footage as a hook.
+Part 2 (remaining 25 seconds): Shows a step-by-step screen recording of how to download the mod.
+
+Structure the script EXACTLY like this:
+1. HOOK (0-5s): "Wait... you need to see THIS gameplay..." — grab attention instantly
+2. BRIDGE (5-8s): "Want this on YOUR device? Let me show you exactly how..."
+3. WALKTHROUGH (8-22s): "Step one, go to the link on screen... step two, tap download..."
+4. CTA (22-30s): "It works on all devices. Link is on screen right now. Download the mod and thank me later!"
+
+Rules:
+- Keep it under 80 words. Direct speech only. No stage directions.
+- Use the phrase "link on screen" or "tap download" at least once.
+- Sound excited and urgent like a real TikToker.
+- The link is: {landing_url}"""
+
+        try:
+            completion = self.groq_client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7,
+                max_tokens=200
+            )
+            return completion.choices[0].message.content.strip()
+        except Exception as e:
+            log.warning(f"Llama reward script generation failed: {e}")
+            return (
+                f"Wait. Look at this {game_name} gameplay. "
+                f"Want this on your device? I will show you exactly how. "
+                f"Go to the link on screen. Tap download. It is completely free. Go now!"
+            )
+
+    def _find_trigger_time(self, segments: list[dict], hook_duration: float = 5.0) -> float:
+        """
+        Scan word-level transcription to find when trigger words are spoken.
+        Returns the timestamp when stickers should start appearing.
+        Trigger words: link, download, tap, click, bio, screen, button, free, mod, get
+        """
+        triggers = {"link", "download", "tap", "click", "bio", "screen", "button", "free", "mod", "get"}
+        for seg in segments:
+            text = seg.get("text", "").lower()
+            start = seg.get("start", 0)
+            # Only consider segments during the recording portion
+            if start < hook_duration:
+                continue
+            for word in text.split():
+                cleaned = word.strip(".,!?'\"")
+                if cleaned in triggers:
+                    return start
+        # Fallback: stickers appear 3 seconds into the recording
+        return hook_duration + 3.0
+
+    # ── Reward-First Pipeline ──────────────────────────────────────────────────
+
+    def process_reward_first(
+        self,
+        scraped_video_path: str,
+        manual_recording_path: str,
+        game_name: str,
+        channel_screenshot: str,
+        landing_url: str,
+        overlay_data: list = None,
+        layout: dict = None,
+        caption_color: str = "yellow",
+        caption_pos: float = 0.58,
+        landing_link_color: str = "#64dcff",
+        progress_callback: Optional[Callable] = None,
+    ) -> str:
+        """
+        Reward-First pipeline:
+        [5s scraped hook] + [user's manual recording] with AI voiceover bridging both.
+        Stickers/overlays appear only during the recording segment, triggered by keywords.
+        """
+
+        def _progress(pct: int, msg: str):
+            if progress_callback:
+                progress_callback(pct, msg)
+            log.info(f"  [{pct}%] {msg}")
+
+        hook_duration = 5.0
+
+        # 1. Prepare the hook clip
+        _progress(5, "Preparing 5s gameplay hook...")
+        hook_clip = self._prepare_hook(scraped_video_path, hook_duration)
+
+        # 2. Validate and prepare the manual recording
+        _progress(15, "Validating manual screen recording (9:16)...")
+        recording_clip = self._validate_recording(manual_recording_path)
+
+        # 3. Concatenate hook + recording
+        _progress(25, "Stitching hook + recording...")
+        combined = concatenate_videoclips([hook_clip, recording_clip], method="compose")
+        total_duration = combined.duration
+
+        # 4. Generate bridging voiceover script
+        _progress(35, "Generating AI bridging script...")
+        script = self._generate_reward_script(game_name, landing_url)
+        log.info(f"Reward Script: {script[:120]}...")
+
+        # 5. TTS voiceover
+        _progress(45, "Synthesizing AI voiceover...")
+        vo_path = self._make_voiceover(game_name)
+        # Override with reward script (re-generate with the reward-specific script)
+        vo_path_reward = Path(tempfile.mktemp(suffix=".mp3"))
+        success = self._elevenlabs_tts(script, vo_path_reward)
+        if not success:
+            success = self._gtts_fallback(script, vo_path_reward)
+        if success and vo_path_reward.exists():
+            vo_path = vo_path_reward
+
+        vo_clip = AudioFileClip(str(vo_path))
+
+        # Loop/trim voiceover to match combined video
+        if vo_clip.duration < total_duration:
+            repeats = math.ceil(total_duration / vo_clip.duration)
+            vo_clip = concatenate_audioclips([vo_clip] * repeats)
+        if vo_clip.duration > total_duration:
+            vo_clip = vo_clip.subclip(0, total_duration)
+
+        combined = combined.set_audio(vo_clip)
+
+        # 6. Transcribe voiceover for subtitles
+        _progress(55, "Transcribing voiceover for subtitles...")
+        try:
+            segments = self._transcribe(vo_path)
+            # Filter subtitles: only show during the recording segment (after hook)
+            recording_segs = [s for s in segments if s["start"] >= hook_duration]
+            sub_clips = self._make_subtitle_clips(recording_segs, TARGET_W, TARGET_H, caption_color, caption_pos)
+            if sub_clips:
+                combined = CompositeVideoClip([combined] + sub_clips)
+        except Exception as e:
+            log.warning(f"Subtitle generation failed: {e}")
+            segments = []
+
+        # 7. Find trigger time for stickers (when AI says "link", "download", etc.)
+        _progress(65, "Calculating sticker trigger timing...")
+        sticker_start = self._find_trigger_time(segments, hook_duration)
+        log.info(f"Stickers will appear at t={sticker_start:.1f}s")
+
+        # 8. CPA link bar — shown during recording segment only
+        _progress(70, "Adding CPA link bar...")
+        try:
+            cpa_duration = total_duration - hook_duration
+            if cpa_duration > 0:
+                cpa_bar = self._make_cpa_bar(landing_url, cpa_duration, link_color=landing_link_color, game_name=game_name)
+                cpa_bar = cpa_bar.set_start(hook_duration)
+                combined = CompositeVideoClip([combined, cpa_bar])
+        except Exception as e:
+            log.warning(f"CPA bar failed: {e}")
+
+        # 9. Stickers & channel overlay — triggered at keyword time
+        _progress(80, "Adding stickers & channel overlay...")
+        try:
+            overlay_dur = total_duration - sticker_start
+            if overlay_dur > 0 and (overlay_data or channel_screenshot):
+                overlay = self._make_channel_overlay(
+                    channel_screenshot, landing_url, overlay_dur,
+                    overlay_data or [], layout or {}, link_color=landing_link_color
+                )
+                if overlay:
+                    overlay = overlay.set_start(sticker_start)
+                    combined = CompositeVideoClip([combined, overlay])
+        except Exception as e:
+            log.warning(f"Overlay failed: {e}")
+
+        # 10. Export
+        _progress(90, "Rendering final Reward-First video...")
+        stem = Path(scraped_video_path).stem.replace("hook_", "")
+
+        from config import Config
+        cfg = Config()
+        out_dir = Path(cfg.EDITED_DIR)
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        out_path = str(out_dir / f"{stem}_reward_promo.mp4")
+
+        combined.write_videofile(
+            out_path,
+            codec="libx264", audio_codec="aac",
+            fps=30, preset="fast", threads=4,
+            pix_fmt="yuv420p",
+            logger=None,
+        )
+
+        # Cleanup
+        try:
+            vo_path.unlink(missing_ok=True)
+            if vo_path_reward.exists():
+                vo_path_reward.unlink(missing_ok=True)
+        except Exception:
+            pass
+        combined.close()
+
+        _progress(100, "Reward-First video done!")
+        return out_path
+
+    # ── Legacy Main pipeline ──────────────────────────────────────────────────
 
     def process(
         self,

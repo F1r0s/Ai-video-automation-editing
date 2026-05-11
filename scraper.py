@@ -274,3 +274,51 @@ class VideoScraper:
         # Fallback: newest .mp4
         mp4s = sorted(self.cfg.RAW_DIR.glob("*.mp4"), key=lambda p: p.stat().st_mtime)
         return mp4s[-1] if mp4s else None
+
+    def download_hook(self, video_meta: dict, hook_seconds: int = 5) -> Optional[Path]:
+        """
+        Download only the first N seconds of a video for the 'reward hook'.
+        Uses yt-dlp --download-sections for fast extraction.
+        Returns the local path on success, None on failure.
+        """
+        video_url = video_meta.get("webpage_url") or video_meta.get("url", "")
+        if not video_url:
+            log.error("No URL in metadata; cannot download hook.")
+            return None
+
+        safe_title = "".join(
+            c if c.isalnum() or c in " _-" else "_"
+            for c in video_meta.get("title", "video")
+        )[:60]
+        output_tmpl = str(self.cfg.RAW_DIR / f"hook_{safe_title}_%(id)s.%(ext)s")
+
+        end_time = f"00:00:{hook_seconds:02d}"
+        cmd = [
+            "yt-dlp",
+            "-f", "bestvideo[vcodec^=avc][height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[vcodec^=avc][ext=mp4]/best[ext=mp4]",
+            "-o", output_tmpl,
+            "--merge-output-format", "mp4",
+            "--no-playlist",
+            "--download-sections", f"*00:00:00-{end_time}",
+        ]
+        if self.cfg.YT_DLP_COOKIES:
+            cmd += ["--cookies", self.cfg.YT_DLP_COOKIES]
+        cmd.append(video_url)
+
+        log.info(f"  Downloading {hook_seconds}s hook: {video_url[:80]}")
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, timeout=120)
+            log.info(f"  Hook download succeeded!")
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            log.warning(f"  Hook download failed: {exc}")
+            return None
+
+        # Find the downloaded file
+        video_id = video_meta.get("id", "")
+        candidates = list(self.cfg.RAW_DIR.glob(f"hook_*{video_id}*.mp4"))
+        if candidates:
+            return candidates[0]
+
+        # Fallback: newest hook file
+        hooks = sorted(self.cfg.RAW_DIR.glob("hook_*.mp4"), key=lambda p: p.stat().st_mtime)
+        return hooks[-1] if hooks else None
