@@ -432,8 +432,11 @@ class VideoProcessor:
                     circle_img = self._sticker_frame(self.sticker_cache["circle"], t)
                     scaled_sz = int(240 * sz * pulse)
                     scaled_circle = circle_img.resize((scaled_sz, scaled_sz), Image.LANCZOS)
-                    paste_x = cx - scaled_sz // 2
-                    paste_y = cy - scaled_sz // 2
+                    rot = item.get("rotation", 0)
+                    if rot != 0:
+                        scaled_circle = scaled_circle.rotate(-rot, expand=True, resample=Image.BICUBIC)
+                    paste_x = cx - scaled_circle.width // 2
+                    paste_y = cy - scaled_circle.height // 2
                     bg.paste(scaled_circle, (paste_x, paste_y), scaled_circle)
 
                 elif item["kind"] == "arrow" and "arrow" in self.sticker_cache:
@@ -442,8 +445,11 @@ class VideoProcessor:
                     ay = cy + bounce
                     scaled_sz = int(240 * sz)
                     scaled_arrow = arrow_img.resize((scaled_sz, int(scaled_sz * 1.3)), Image.LANCZOS)
-                    paste_x = cx - scaled_sz // 2
-                    paste_y = ay - int(scaled_sz * 1.3) // 2
+                    rot = item.get("rotation", 0)
+                    if rot != 0:
+                        scaled_arrow = scaled_arrow.rotate(-rot, expand=True, resample=Image.BICUBIC)
+                    paste_x = cx - scaled_arrow.width // 2
+                    paste_y = ay - scaled_arrow.height // 2
                     bg.paste(scaled_arrow, (paste_x, paste_y), scaled_arrow)
 
                 elif item["kind"] == "finger" and "finger" in self.sticker_cache:
@@ -452,8 +458,11 @@ class VideoProcessor:
                     fy = cy + bounce
                     scaled_sz = int(300 * sz)
                     scaled_finger = finger_img.resize((scaled_sz, scaled_sz), Image.LANCZOS)
-                    paste_x = cx - scaled_sz // 2
-                    paste_y = fy - scaled_sz // 2
+                    rot = item.get("rotation", 0)
+                    if rot != 0:
+                        scaled_finger = scaled_finger.rotate(-rot, expand=True, resample=Image.BICUBIC)
+                    paste_x = cx - scaled_finger.width // 2
+                    paste_y = fy - scaled_finger.height // 2
                     bg.paste(scaled_finger, (paste_x, paste_y), scaled_finger)
 
                 elif item["kind"] == "cartoon" and "cartoon" in self.sticker_cache:
@@ -461,8 +470,11 @@ class VideoProcessor:
                     cartoon_img = self._sticker_frame(self.sticker_cache["cartoon"], t)
                     scaled_sz = int(240 * sz * pulse)
                     scaled_cartoon = cartoon_img.resize((scaled_sz, scaled_sz), Image.LANCZOS)
-                    paste_x = cx - scaled_sz // 2
-                    paste_y = cy - scaled_sz // 2
+                    rot = item.get("rotation", 0)
+                    if rot != 0:
+                        scaled_cartoon = scaled_cartoon.rotate(-rot, expand=True, resample=Image.BICUBIC)
+                    paste_x = cx - scaled_cartoon.width // 2
+                    paste_y = cy - scaled_cartoon.height // 2
                     bg.paste(scaled_cartoon, (paste_x, paste_y), scaled_cartoon)
 
                 elif item["kind"] == "text":
@@ -473,10 +485,19 @@ class VideoProcessor:
                     bb = draw.textbbox((0,0), txt, font=tf)
                     tw, th = bb[2]-bb[0], bb[3]-bb[1]
                     pad = 24
-                    draw.rounded_rectangle(
-                        [cx-tw//2-pad, cy-th//2-pad, cx+tw//2+pad, cy+th//2+pad],
-                        radius=24, fill=(0,0,0,220))
-                    draw.text((cx-tw//2, cy-th//2), txt, fill=(255,255,0,255), font=tf)
+                    
+                    txt_img = Image.new("RGBA", (tw + pad*2, th + pad*2), (0,0,0,0))
+                    txt_draw = ImageDraw.Draw(txt_img)
+                    txt_draw.rounded_rectangle([0, 0, tw + pad*2, th + pad*2], radius=24, fill=(0,0,0,220))
+                    txt_draw.text((pad, pad), txt, fill=(255,255,0,255), font=tf)
+                    
+                    rot = item.get("rotation", 0)
+                    if rot != 0:
+                        txt_img = txt_img.rotate(-rot, expand=True, resample=Image.BICUBIC)
+                        
+                    paste_x = cx - txt_img.width // 2
+                    paste_y = cy - txt_img.height // 2
+                    bg.paste(txt_img, (paste_x, paste_y), txt_img)
 
             # Link text
             lx = int(link_x * TARGET_W)

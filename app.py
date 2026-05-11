@@ -40,6 +40,7 @@ class CanvasItem:
         self.x = x
         self.y = y
         self.scale = 1.0
+        self.rotation = 0.0
         self.text = text
         self.path = path
         
@@ -80,6 +81,8 @@ class CanvasItem:
             # Cap size to avoid memory explosion during drag
             w, h = max(10, w), max(10, h)
             resized = img.resize((w, h), Image.NEAREST if self.editor.is_dragging else Image.LANCZOS)
+            if self.rotation != 0:
+                resized = resized.rotate(-self.rotation, expand=True, resample=Image.BICUBIC)
             self.tk_img = ImageTk.PhotoImage(resized)
             self.ids.append(self.canvas.create_image(x, y, image=self.tk_img, anchor="center"))
             
@@ -108,6 +111,8 @@ class CanvasItem:
                 bw, bh = base_sizes.get(self.kind, (64, 64))
                 tw, th = max(1, int(bw * s)), max(1, int(bh * s))
                 resized = frame.resize((tw, th), Image.LANCZOS)
+                if self.rotation != 0:
+                    resized = resized.rotate(-self.rotation, expand=True, resample=Image.BICUBIC)
                 self.tk_img = ImageTk.PhotoImage(resized)
                 self.ids.append(self.canvas.create_image(x, y, image=self.tk_img, anchor="center"))
                 # Start animation loop
@@ -247,6 +252,8 @@ class CanvasItem:
             bw, bh = base_sizes.get(self.kind, (64, 64))
             tw, th = max(1, int(bw * s)), max(1, int(bh * s))
             resized = frame.resize((tw, th), Image.LANCZOS)
+            if getattr(self, "rotation", 0) != 0:
+                resized = resized.rotate(-self.rotation, expand=True, resample=Image.BICUBIC)
             self.tk_img = ImageTk.PhotoImage(resized)
             # update canvas image
             try:
@@ -279,10 +286,12 @@ class CanvasEditor:
         self.locked = False
         
         self.handles = []
+        self.rot_handle = None
+        self.rot_line = None
         self.sel_rect = None
         
         self.is_dragging = False
-        self.drag_mode = None # "move" or "scale"
+        self.drag_mode = None # "move", "scale", "rotate"
         self.drag_start_x = 0
         self.drag_start_y = 0
         self.start_scale = 1.0
@@ -343,6 +352,8 @@ class CanvasEditor:
 
     def draw_selection(self):
         if self.sel_rect: self.canvas.delete(self.sel_rect)
+        if self.rot_line: self.canvas.delete(self.rot_line)
+        if self.rot_handle: self.canvas.delete(self.rot_handle)
         for h in self.handles: self.canvas.delete(h)
         self.handles.clear()
         
@@ -361,13 +372,29 @@ class CanvasEditor:
             h = self.canvas.create_oval(cx-r, cy-r, cx+r, cy+r, fill="#fff", outline="#00d4ff", width=2)
             self.handles.append(h)
             
+        # Rotation handle
+        hx, hy = (x1+x2)//2, y1 - 25
+        self.rot_line = self.canvas.create_line((x1+x2)//2, y1, hx, hy, fill="#00d4ff", dash=(2,2))
+        self.rot_handle = self.canvas.create_oval(hx-r, hy-r, hx+r, hy+r, fill="#00d4ff", outline="#fff", width=2)
+            
         # Ensure handles are on top
         self.canvas.tag_raise(self.sel_rect)
+        self.canvas.tag_raise(self.rot_line)
+        self.canvas.tag_raise(self.rot_handle)
         for h in self.handles: self.canvas.tag_raise(h)
 
     def on_press(self, e):
         if self.locked:
             return
+
+        # 0. Check rotation handle
+        if self.rot_handle:
+            c = self.canvas.coords(self.rot_handle)
+            if c and c[0]-5 <= e.x <= c[2]+5 and c[1]-5 <= e.y <= c[3]+5:
+                self.drag_mode = "rotate"
+                self.drag_start_angle = math.degrees(math.atan2(e.y - self.selected.y, e.x - self.selected.x))
+                self.start_rotation = getattr(self.selected, 'rotation', 0.0)
+                return
 
         # 1. Check if clicked on a handle
         for h in self.handles:
@@ -418,6 +445,12 @@ class CanvasEditor:
             self.selected.scale = max(0.1, min(10.0, new_scale))
             self.selected.draw()
             
+        elif self.drag_mode == "rotate":
+            current_angle = math.degrees(math.atan2(e.y - self.selected.y, e.x - self.selected.x))
+            angle_diff = current_angle - self.drag_start_angle
+            self.selected.rotation = (self.start_rotation + angle_diff) % 360
+            self.selected.draw()
+            
         self.draw_selection()
 
     def on_release(self, e):
@@ -462,7 +495,7 @@ class CanvasEditor:
         ov = []
         stickers = [i for i in self.items if i.kind not in ("screenshot", "link", "safe_zone")]
         for s in stickers:
-            d = {"kind": s.kind, "cx": s.x/PV_W, "cy": s.y/PV_H, "size": s.scale}
+            d = {"kind": s.kind, "cx": s.x/PV_W, "cy": s.y/PV_H, "size": s.scale, "rotation": getattr(s, "rotation", 0)}
             if s.text: d["text"] = s.text
             if s.kind == "circle":
                 d["rx"] = (40 * s.scale) / PV_W
