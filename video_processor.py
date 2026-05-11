@@ -354,15 +354,19 @@ class VideoProcessor:
 
     # ── CPA Link Bar (shown during gameplay, first 25 seconds) ─────────────────
 
-    def _make_cpa_bar(self, landing_url: str, duration: float, link_color: str = "#64dcff", game_name: str = "") -> ImageClip:
+    def _make_cpa_bar(self, landing_url: str, duration: float, link_color: str = "#64dcff", game_name: str = "", link_font_name: str = "Montserrat-Bold") -> ImageClip:
         """Semi-transparent bar at the bottom with the CPA link."""
         bar_h = 240
         img = Image.new("RGBA", (TARGET_W, bar_h), (0, 0, 0, 210))
         draw = ImageDraw.Draw(img)
 
+        font_path = str(ASSETS_DIR / f"{link_font_name}.ttf")
+        if not Path(font_path).exists():
+            font_path = str(FONT_PATH) if FONT_PATH.exists() else "Arial"
+
         try:
-            font_big   = ImageFont.truetype(str(FONT_PATH), 64) if FONT_PATH.exists() else ImageFont.load_default()
-            font_small = ImageFont.truetype(str(FONT_PATH), 52) if FONT_PATH.exists() else ImageFont.load_default()
+            font_big   = ImageFont.truetype(font_path, 64)
+            font_small = ImageFont.truetype(font_path, 52)
         except Exception:
             font_big = font_small = ImageFont.load_default()
 
@@ -402,7 +406,7 @@ class VideoProcessor:
 
     def _make_channel_overlay(self, screenshot_path: str, landing_url: str,
                                duration: float, overlay_data: list = None,
-                               layout: dict = None, link_color: str = "#64dcff") -> Optional[CompositeVideoClip]:
+                               layout: dict = None, link_color: str = "#64dcff", link_font_name: str = "Montserrat-Bold") -> Optional[CompositeVideoClip]:
         """Animated channel overlay with user-positioned screenshot, link, and stickers.
         Even without a screenshot, stickers will still be rendered on a transparent base."""
         has_screenshot = screenshot_path and Path(screenshot_path).exists()
@@ -436,10 +440,14 @@ class VideoProcessor:
             ss_px = (TARGET_W - nw) // 2 + int(ss_ox * TARGET_W)
             ss_py = (TARGET_H - nh) // 2 + int(ss_oy * TARGET_H)
 
+        font_path = str(ASSETS_DIR / f"{link_font_name}.ttf")
+        if not Path(font_path).exists():
+            font_path = str(FONT_PATH) if FONT_PATH.exists() else "Arial"
+
         try:
             sticker_font = ImageFont.truetype(str(FONT_PATH), 144) if FONT_PATH.exists() else ImageFont.load_default()
             base_fs = max(45, int(90 * link_scale))
-            link_font = ImageFont.truetype(str(FONT_PATH), base_fs) if FONT_PATH.exists() else ImageFont.load_default()
+            link_font = ImageFont.truetype(font_path, base_fs)
         except Exception:
             sticker_font = link_font = ImageFont.load_default()
 
@@ -732,6 +740,7 @@ Rules:
         caption_color: str = "yellow",
         caption_pos: float = 0.58,
         landing_link_color: str = "#64dcff",
+        link_font_name: str = "Montserrat-Bold",
         progress_callback: Optional[Callable] = None,
     ) -> str:
         """
@@ -819,7 +828,7 @@ Rules:
         try:
             cpa_duration = total_duration - hook_duration
             if cpa_duration > 0:
-                cpa_bar = self._make_cpa_bar(landing_url, cpa_duration, link_color=landing_link_color, game_name=game_name)
+                cpa_bar = self._make_cpa_bar(landing_url, cpa_duration, link_color=landing_link_color, game_name=game_name, link_font_name=link_font_name)
                 cpa_bar = cpa_bar.set_start(hook_duration)
                 combined = CompositeVideoClip([combined, cpa_bar])
         except Exception as e:
@@ -833,7 +842,7 @@ Rules:
             if overlay_dur > 0 and (overlay_data or channel_screenshot):
                 overlay = self._make_channel_overlay(
                     channel_screenshot or "", landing_url, overlay_dur,
-                    overlay_data or [], layout or {}, link_color=landing_link_color
+                    overlay_data or [], layout or {}, link_color=landing_link_color, link_font_name=link_font_name
                 )
                 if overlay:
                     overlay = overlay.set_start(sticker_start)
@@ -893,6 +902,7 @@ Rules:
         caption_color: str = "yellow",
         caption_pos: float = 0.58,
         landing_link_color: str = "#64dcff",
+        link_font_name: str = "Montserrat-Bold"
     ) -> str:
         """
         Full pipeline for one video file.
@@ -956,7 +966,7 @@ Rules:
             cpa_start = max(0, clip.duration - 5)
             cpa_duration = clip.duration - cpa_start
             if cpa_duration > 0:
-                cpa_bar = self._make_cpa_bar(landing_url, cpa_duration, link_color=landing_link_color, game_name=game_name)
+                cpa_bar = self._make_cpa_bar(landing_url, cpa_duration, link_color=landing_link_color, game_name=game_name, link_font_name=link_font_name)
                 cpa_bar = cpa_bar.set_start(cpa_start)
                 clip = CompositeVideoClip([clip, cpa_bar])
         except Exception as e:
@@ -968,7 +978,7 @@ Rules:
             overlay_dur = min(5, clip.duration)
             overlay = self._make_channel_overlay(
                 channel_screenshot, landing_url, overlay_dur,
-                overlay_data or [], layout or {}, link_color=landing_link_color
+                overlay_data or [], layout or {}, link_color=landing_link_color, link_font_name=link_font_name
             )
             if overlay:
                 overlay = overlay.set_start(clip.duration - overlay_dur)

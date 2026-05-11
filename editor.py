@@ -38,6 +38,7 @@ except Exception:
     whisper = None
     _HAS_WHISPER = False
 from gtts import gTTS               # fallback TTS
+from groq import Groq
 
 from config import Config
 
@@ -53,7 +54,8 @@ class VideoEditor:
 
     def __init__(self, config: Config):
         self.cfg = config
-        self._whisper_model: Optional[object] = None   # lazy-loaded
+        self.groq_client = Groq(api_key=config.GROQ_API_KEY) if config.GROQ_API_KEY else None
+        self._whisper_model: Optional[object] = None   # legacy/local fallback
 
     # ── Private helpers ───────────────────────────────────────────────────────
 
@@ -102,30 +104,57 @@ class VideoEditor:
         tts.save(str(out_path))
         log.info(f"  gTTS → {out_path}")
 
+    def _generate_llama_script(self, game_name: str) -> str:
+        """Use Groq Llama 3 to generate a high-retention vertical video script."""
+        if not self.groq_client:
+            return f"Wait — are you playing {game_name} without this mod? This changes EVERYTHING. Watch till the end and grab the link below!"
+            
+        prompt = f"Write a short, punchy 30-second TikTok script for a mod for '{game_name}'. High energy, viral hook, call to action. Max 80 words."
+        try:
+            completion = self.groq_client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7,
+                max_tokens=150
+            )
+            return completion.choices[0].message.content.strip()
+        except Exception:
+            return f"Wait — are you playing {game_name} without this mod? This changes EVERYTHING!"
+
     def _generate_voiceover(self, game_name: str) -> Path:
         """Create a hook-style voiceover MP3 for the given game."""
-        hook = (
-            f"Wait — are you playing {game_name} without this mod? "
-            f"This changes EVERYTHING. Watch till the end and grab the link below!"
-        )
+        script = self._generate_llama_script(game_name)
         out = Path(tempfile.mktemp(suffix=".mp3"))
-        if not self._elevenlabs_tts(hook, out):
-            self._gtts_fallback(hook, out)
+        if not self._elevenlabs_tts(script, out):
+            self._gtts_fallback(script, out)
         return out
 
     # ── Whisper captions ──────────────────────────────────────────────────────
 
-    def _transcribe(self, video_path: Path) -> list[dict]:
-        """
-        Transcribe audio using Whisper.
-        Returns list of {start, end, text} dicts.
-        """
-        model = self._load_whisper()
-        if model is None:
+    def _transcribe(self, audio_path: Path) -> list[dict]:
+        """Transcribe audio using Groq Whisper (whisper-large-v3)."""
+        if not self.groq_client:
+            log.warning("No Groq client for transcription.")
             return []
 
-        result = model.transcribe(str(video_path), language="en", fp16=False)
-        return result.get("segments", [])
+        try:
+            with open(audio_path, "rb") as file:
+                transcription = self.groq_client.audio.transcriptions.create(
+                    file=(audio_path.name, file.read()),
+                    model="whisper-large-v3",
+                    response_format="verbose_json",
+                )
+                segments = []
+                for s in getattr(transcription, "segments", []):
+                    segments.append({
+                        "start": s.get("start") if isinstance(s, dict) else getattr(s, "start", 0),
+                        "end": s.get("end") if isinstance(s, dict) else getattr(s, "end", 0),
+                        "text": s.get("text") if isinstance(s, dict) else getattr(s, "text", ""),
+                    })
+                return segments
+        except Exception as e:
+            log.error(f"Groq Whisper failed: {e}")
+            return []
 
     def _make_subtitle_clips(self, segments: list[dict], video_w: int, video_h: int, caption_color: str = "white", caption_pos: float = 0.58) -> list:
         """Render each subtitle segment as a TextClip."""

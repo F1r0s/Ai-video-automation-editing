@@ -300,6 +300,7 @@ def cloud_process():
     cap_color = request.form.get('caption_color', 'yellow')
     cap_pos = float(request.form.get('caption_pos', 0.58))
     link_color = request.form.get('landing_link_color', '#64dcff')
+    link_font = request.form.get('link_font', 'Montserrat-Bold')
     mode = request.form.get('mode', 'legacy')
     
     if 'video' not in request.files:
@@ -349,6 +350,7 @@ def cloud_process():
                 caption_color=cap_color,
                 caption_pos=cap_pos,
                 landing_link_color=link_color,
+                link_font_name=link_font,
                 progress_callback=lambda p, m: log.info(f"Cloud Reward [{p}%]: {m}"),
             )
         else:
@@ -363,7 +365,8 @@ def cloud_process():
                 layout=json.loads(layout_json),
                 caption_color=cap_color,
                 caption_pos=cap_pos,
-                landing_link_color=link_color
+                landing_link_color=link_color,
+                link_font_name=link_font
             )
     except Exception as e:
         log.error(f"Cloud processing crashed: {e}")

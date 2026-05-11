@@ -601,6 +601,9 @@ class VideoAutomationApp:
         self.render_local = tk.BooleanVar(value=True)
         self.render_cloud = tk.BooleanVar(value=False)
         self.export_quality = tk.StringVar(value="1080")
+        self.caption_color = tk.StringVar(value="yellow")
+        self.caption_pos = tk.DoubleVar(value=0.58)
+        self.link_font = tk.StringVar(value="Montserrat-Bold")
         self.processing = False
         self.pause_event = threading.Event()
         self.pause_event.set()
@@ -610,6 +613,8 @@ class VideoAutomationApp:
 
         self.landing_url.trace_add("write", lambda *_: self._update_link())
         self.landing_link_color.trace_add("write", lambda *_: self._sync_link_color())
+        self.caption_pos.trace_add("write", lambda *_: self._update_caption_preview())
+        self.caption_color.trace_add("write", lambda *_: self._update_caption_preview())
         self._build_ui()
 
     def _build_ui(self):
@@ -643,9 +648,6 @@ class VideoAutomationApp:
         self.recording_path_label = self._step(left,"5","Screen Recording (Walkthrough)",self.manual_recording_path, btn="Choose...",cmd=self._pick_recording)
 
         # Caption Settings
-        self.caption_color = tk.StringVar(value="yellow")
-        self.caption_pos = tk.DoubleVar(value=0.58)
-        
         cap_frame = tk.Frame(left, bg=BG_CARD, highlightthickness=1, highlightbackground=BG_INPUT)
         cap_frame.pack(fill="x", pady=3)
         ci = tk.Frame(cap_frame, bg=BG_CARD); ci.pack(fill="x", padx=10, pady=8)
@@ -665,7 +667,7 @@ class VideoAutomationApp:
         menu.add_command(label="📍 Higher", command=lambda: self.caption_pos.set(0.50))
         menu.add_command(label="📍 Very Bottom", command=lambda: self.caption_pos.set(0.78))
 
-        # Landing Link Color
+        # Landing Link Color and Font
         link_frame = tk.Frame(left, bg=BG_CARD, highlightthickness=1, highlightbackground=BG_INPUT)
         link_frame.pack(fill="x", pady=3)
         li = tk.Frame(link_frame, bg=BG_CARD); li.pack(fill="x", padx=10, pady=8)
@@ -673,7 +675,11 @@ class VideoAutomationApp:
         self.link_color_btn = tk.Button(li, text="  🎨  ", font=("Segoe UI", 10), bg=self.landing_link_color.get(),
                                        relief="flat", padx=8, command=self._pick_link_color)
         self.link_color_btn.pack(side="left", padx=5)
-        tk.Entry(li, textvariable=self.landing_link_color, font=("Segoe UI", 9), fg=ACCENT, bg=BG_INPUT, relief="flat", width=12).pack(side="left", padx=5)
+        tk.Entry(li, textvariable=self.landing_link_color, font=("Segoe UI", 9), fg=ACCENT, bg=BG_INPUT, relief="flat", width=10).pack(side="left", padx=5)
+        
+        tk.Label(li, text="Font:", font=("Segoe UI", 9, "bold"), fg=FG_DIM, bg=BG_CARD).pack(side="left", padx=(10,0))
+        fonts = ["Montserrat-Bold", "Arial-Bold", "Impact", "Verdana-Bold", "Courier-Bold", "Comic-Bold", "Roboto-Bold"]
+        tk.OptionMenu(li, self.link_font, *fonts).pack(side="left", padx=5)
 
         # Cloud Rendering Toggle
         cloud_frame = tk.Frame(left, bg=BG_CARD, highlightthickness=1, highlightbackground=BG_INPUT)
@@ -892,6 +898,25 @@ class VideoAutomationApp:
             self.editor.remove_item(link)
         self.editor.draw_selection()
 
+    def _update_caption_preview(self):
+        if not getattr(self, "editor", None): return
+        pos = self.caption_pos.get()
+        color = self.caption_color.get()
+        y_pos = int(PV_H * pos)
+        
+        # Remove old dummy caption if exists
+        self.editor.canvas.delete("dummy_caption")
+        text = "Llama 3 Generated Subtitle"
+        fnt = ("Segoe UI", max(10, int(15 * (PV_W/300))), "bold")
+        
+        # Draw stroke/background
+        t_id = self.editor.canvas.create_text(PV_W//2, y_pos, text=text, font=fnt, tags="dummy_caption")
+        bbox = self.editor.canvas.bbox(t_id)
+        if bbox:
+            self.editor.canvas.create_rectangle(bbox[0]-6, bbox[1]-2, bbox[2]+6, bbox[3]+2, fill="#111", outline="", tags="dummy_caption")
+            self.editor.canvas.tag_raise(t_id)
+        self.editor.canvas.itemconfig(t_id, fill=color)
+
     # --- Log ---
     def _log(self, m):
         self.log_box.configure(state="normal"); self.log_box.insert("end",m+"\n")
@@ -1107,6 +1132,7 @@ class VideoAutomationApp:
                         'caption_color': self.caption_color.get(),
                         'caption_pos': str(self.caption_pos.get()),
                         'landing_link_color': self.landing_link_color.get(),
+                        'link_font': self.link_font.get(),
                         'overlays': json.dumps(overlays),
                         'layout': json.dumps(layout),
                         'export_quality': export_quality,
@@ -1148,6 +1174,7 @@ class VideoAutomationApp:
                             caption_color=self.caption_color.get(),
                             caption_pos=self.caption_pos.get(),
                             landing_link_color=self.landing_link_color.get(),
+                            link_font_name=self.link_font.get(),
                             progress_callback=lambda p, m: self.root.after(0, self._log, f"  [{p}%] {m}"),
                         )
                     else:
@@ -1162,7 +1189,8 @@ class VideoAutomationApp:
                             layout=layout,
                             caption_color=self.caption_color.get(),
                             caption_pos=self.caption_pos.get(),
-                            landing_link_color=self.landing_link_color.get()
+                            landing_link_color=self.landing_link_color.get(),
+                            link_font_name=self.link_font.get()
                         )
                     final_path = str(out_path)
                     if export_quality == "720":
