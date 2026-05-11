@@ -298,6 +298,7 @@ class CanvasEditor:
         self.start_dist = 1.0
         
         self.canvas.bind("<Button-1>", self.on_press)
+        self.canvas.bind("<Button-3>", self.on_right_click)
         self.canvas.bind("<B1-Motion>", self.on_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_release)
         self.canvas.bind("<Delete>", self.on_delete_key)
@@ -467,6 +468,50 @@ class CanvasEditor:
         if self.locked:
             return
         self.delete_selected()
+
+    def on_right_click(self, e):
+        if self.locked: return
+        
+        clicked_item = None
+        for item in reversed(self.items):
+            if item.kind == "safe_zone": continue
+            bbox = item.get_bbox()
+            if bbox and bbox[0] <= e.x <= bbox[2] and bbox[1] <= e.y <= bbox[3]:
+                clicked_item = item
+                break
+                
+        if not clicked_item: return
+        self.select(clicked_item)
+        
+        menu = tk.Menu(self.canvas, tearoff=0)
+        menu.add_command(label="Bring to Front", command=lambda: self.bring_to_front(clicked_item))
+        menu.add_command(label="Send to Back", command=lambda: self.send_to_back(clicked_item))
+        menu.tk_popup(e.x_root, e.y_root)
+
+    def bring_to_front(self, item):
+        if item in self.items:
+            self.items.remove(item)
+            self.items.append(item)
+            self._redraw_all()
+            
+    def send_to_back(self, item):
+        if item in self.items:
+            self.items.remove(item)
+            self.items.insert(0, item)
+            self._redraw_all()
+
+    def _redraw_all(self):
+        for item in self.items:
+            if item.kind == "safe_zone": continue
+            for i in item.ids:
+                self.canvas.tag_raise(i)
+        
+        # Ensure safe_zone stays visually on top
+        sz = next((i for i in self.items if i.kind == "safe_zone"), None)
+        if sz:
+            for i in sz.ids: self.canvas.tag_raise(i)
+            
+        self.draw_selection()
 
     def get_layout_data(self):
         # Extract screenshot layout
