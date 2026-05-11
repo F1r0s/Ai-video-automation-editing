@@ -998,9 +998,9 @@ class VideoAutomationApp:
         reward_mode = bool(recording_path and os.path.exists(recording_path))
         
         self.root.after(0,self._sts,"Searching...",ACCENT)
-        self.root.after(0,self._log,f"\n[1/3] Searching: '{game} MOD gameplay'...")
+        self.root.after(0,self._log,f"\n[1/3] Searching: '{game}'...")
         scraper=VideoScraper(config=cfg)
-        cands=scraper.search(f"{game} MOD gameplay", max_results=mx*3)
+        cands=scraper.search(game, max_results=mx*3)
         if not cands:
             self.root.after(0,self._log,"No videos found."); self._fin(0); return
         self.root.after(0,self._log,f"  Found {len(cands)}."); self.root.after(0,self._prg,10)

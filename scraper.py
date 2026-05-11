@@ -74,7 +74,7 @@ class VideoScraper:
         # Adding "#shorts" and "shorts" to target short-form vertical content
         searches = [
             f"ytsearch{max_results}:{query} shorts",
-            f"ytsearch{max_results}:{query} #shorts gameplay",
+            f"ytsearch{max_results}:{query} #shorts",
         ]
         all_items = []
         for search_url in searches:
@@ -108,20 +108,20 @@ class VideoScraper:
         return items
 
     def _search_tiktok(self, query: str, max_results: int) -> list[dict]:
-        """Search TikTok for vertical gameplay videos via DuckDuckGo."""
-        items = self._search_duckduckgo(f"site:tiktok.com {query} gameplay", max_results)
+        """Search TikTok for vertical videos via DuckDuckGo."""
+        items = self._search_duckduckgo(f"site:tiktok.com {query}", max_results)
         log.info(f"  TikTok: found {len(items)} result(s)")
         return items
 
     def _search_instagram_reels(self, query: str, max_results: int) -> list[dict]:
         """Search Instagram Reels via DuckDuckGo."""
-        items = self._search_duckduckgo(f"site:instagram.com/reel/ {query} gameplay", max_results)
+        items = self._search_duckduckgo(f"site:instagram.com/reel/ {query}", max_results)
         log.info(f"  Instagram Reels: found {len(items)} result(s)")
         return items
 
     def _search_facebook_reels(self, query: str, max_results: int) -> list[dict]:
         """Search Facebook Reels via DuckDuckGo."""
-        items = self._search_duckduckgo(f"site:facebook.com/reel/ {query} gameplay", max_results)
+        items = self._search_duckduckgo(f"site:facebook.com/reel/ {query}", max_results)
         log.info(f"  Facebook Reels: found {len(items)} result(s)")
         return items
 

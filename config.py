@@ -26,8 +26,9 @@ class Config:
 
     # ── TTS / AI ──────────────────────────────────────────────────────────────
     ELEVENLABS_API_KEY  = os.getenv("ELEVENLABS_API_KEY", "")
-    ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "EXAVITQu4vr4xnSDxMaL")  # Bella (female)
-    OPENAI_API_KEY      = os.getenv("OPENAI_API_KEY", "")      # for Whisper captions
+    ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "pqHfZKP75CvOlQylNhV4")  # Adam (male)
+    GROQ_API_KEY        = os.getenv("GROQ_API_KEY", "")        # for fast Llama scripts and Whisper STT
+    OPENAI_API_KEY      = os.getenv("OPENAI_API_KEY", "")      # for fallback Whisper captions
 
     # ── YouTube ───────────────────────────────────────────────────────────────
     YOUTUBE_CLIENT_SECRET_FILE = os.getenv("YOUTUBE_CLIENT_SECRET", "secrets/youtube_client_secret.json")
