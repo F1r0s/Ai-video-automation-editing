@@ -763,7 +763,7 @@ Rules:
             out_path,
             codec="libx264", audio_codec="aac",
             fps=30, preset="fast", threads=4,
-            pix_fmt="yuv420p",
+            ffmpeg_params=['-pix_fmt', 'yuv420p'],
             logger=None,
         )
 
@@ -892,7 +892,7 @@ Rules:
             out_path,
             codec="libx264", audio_codec="aac",
             fps=30, preset="fast", threads=4,
-            pix_fmt="yuv420p",
+            ffmpeg_params=['-pix_fmt', 'yuv420p'],
             logger=None,   # suppress verbose ffmpeg bar in desktop GUI
         )
 
