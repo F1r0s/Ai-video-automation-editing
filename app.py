@@ -138,6 +138,17 @@ class CanvasItem:
                 self.ids.append(bg_id)
             self.ids.append(self.canvas.create_text(x, y, text=self.text, fill="yellow", font=fnt))
 
+        elif self.kind == "safe_zone":
+            # TikTok / Shorts UI Safe Zones (Visual Guide Only)
+            # Top info bar
+            self.ids.append(self.canvas.create_rectangle(0, 0, PV_W, int(PV_H*0.12), fill="yellow", stipple="gray25", outline=""))
+            # Bottom UI bar
+            self.ids.append(self.canvas.create_rectangle(0, int(PV_H*0.82), PV_W, PV_H, fill="yellow", stipple="gray25", outline=""))
+            # Right side buttons
+            self.ids.append(self.canvas.create_rectangle(int(PV_W*0.82), int(PV_H*0.12), PV_W, int(PV_H*0.82), fill="red", stipple="gray25", outline=""))
+            # Core Label
+            self.ids.append(self.canvas.create_text(PV_W//2, PV_H//2, text="CORE VISIBLE AREA\n(Safe Zone)", fill="white", font=("Arial", 10, "bold"), justify="center"))
+
         # Re-apply z-order: screenshot at back, then others, then handles
         self.canvas.tag_lower(self.ids[0] if self.ids else "none")
         if self.kind == "screenshot":
@@ -300,6 +311,16 @@ class CanvasEditor:
         if item in self.items: self.items.remove(item)
         if self.selected == item: self.select(None)
 
+    def toggle_safe_zone(self):
+        sz = next((i for i in self.items if i.kind == "safe_zone"), None)
+        if sz:
+            self.remove_item(sz)
+        else:
+            sz = self.add_item("safe_zone", PV_W//2, PV_H//2)
+            # Ensure it's not selectable to avoid accidental drags
+            self.select(None)
+            for i in sz.ids: self.canvas.tag_raise(i)
+
     def delete_selected(self):
         if self.selected:
             self.remove_item(self.selected)
@@ -435,7 +456,7 @@ class CanvasEditor:
 
     def get_overlays(self):
         ov = []
-        stickers = [i for i in self.items if i.kind not in ("screenshot", "link")]
+        stickers = [i for i in self.items if i.kind not in ("screenshot", "link", "safe_zone")]
         for s in stickers:
             d = {"kind": s.kind, "cx": s.x/PV_W, "cy": s.y/PV_H, "size": s.scale}
             if s.text: d["text"] = s.text
@@ -642,6 +663,8 @@ class VideoAutomationApp:
         action_bar.pack(pady=4)
         tk.Button(action_bar, text="Delete Selected", font=("Segoe UI",9), fg="#fff", bg=RED,
                   relief="flat", padx=10, pady=2, command=self.editor.delete_selected).pack(side="left", padx=4)
+        tk.Button(action_bar, text="Toggle Safe Zone", font=("Segoe UI",9,"bold"), fg="#fff", bg="#444",
+                  relief="flat", padx=10, pady=2, command=self.editor.toggle_safe_zone).pack(side="left", padx=4)
         tk.Button(action_bar, text="Clear All Stickers", font=("Segoe UI",9), fg="#fff", bg=FG_DIM,
                   relief="flat", padx=10, pady=2, command=self.editor.clear_stickers).pack(side="left", padx=4)
 
@@ -848,7 +871,8 @@ class VideoAutomationApp:
         if not cloud_mode:
             processor = VideoProcessor(
                 elevenlabs_key=os.getenv("ELEVENLABS_API_KEY", ""),
-                elevenlabs_voice_id=os.getenv("ELEVENLABS_VOICE_ID", "")
+                elevenlabs_voice_id=os.getenv("ELEVENLABS_VOICE_ID", ""),
+                groq_key=os.getenv("GROQ_API_KEY", "")
             )
 
         downloaded = 0
@@ -877,7 +901,9 @@ class VideoAutomationApp:
                         'landing_link_color': self.landing_link_color.get(),
                         'overlays': json.dumps(overlays),
                         'layout': json.dumps(layout),
-                        'export_quality': export_quality
+                        'export_quality': export_quality,
+                        'elevenlabs_voice_id': os.getenv("ELEVENLABS_VOICE_ID", ""),
+                        'elevenlabs_key': os.getenv("ELEVENLABS_API_KEY", "")
                     }
                     resp = req.post(f"{cloud_url}/api/cloud_process", data=data, files=files, timeout=1800)
                     if resp.ok:
@@ -992,6 +1018,7 @@ class VideoAutomationApp:
                     fps=30,
                     preset="fast",
                     threads=4,
+                    pix_fmt="yuv420p",
                     logger=None,
                 )
             finally:

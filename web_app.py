@@ -122,6 +122,7 @@ def _make_720p_copy(source_path: str) -> str:
                 fps=30,
                 preset="fast",
                 threads=4,
+                pix_fmt="yuv420p",
                 logger=None,
             )
         finally:
@@ -196,9 +197,13 @@ def generate():
     # 2. Start Pipeline
     cfg = Config()
     scraper = VideoScraper(config=cfg)
+    req_el_key = request.form.get('elevenlabs_key', '').strip()
+    req_el_voice = request.form.get('elevenlabs_voice_id', '').strip()
+    
     processor = VideoProcessor(
-        elevenlabs_key=os.getenv("ELEVENLABS_API_KEY", ""),
-        elevenlabs_voice_id=os.getenv("ELEVENLABS_VOICE_ID", "")
+        elevenlabs_key=req_el_key or os.getenv("ELEVENLABS_API_KEY", ""),
+        elevenlabs_voice_id=req_el_voice or os.getenv("ELEVENLABS_VOICE_ID", ""),
+        groq_key=os.getenv("GROQ_API_KEY", "")
     )
 
     log.info(f"Starting web pipeline for: {game}")
@@ -311,9 +316,13 @@ def cloud_process():
         screenshot_file.save(screenshot_path)
     
     # Process Video
+    req_el_key = request.form.get('elevenlabs_key', '').strip()
+    req_el_voice = request.form.get('elevenlabs_voice_id', '').strip()
+    
     processor = VideoProcessor(
-        elevenlabs_key=os.getenv("ELEVENLABS_API_KEY", ""),
-        elevenlabs_voice_id=os.getenv("ELEVENLABS_VOICE_ID", "")
+        elevenlabs_key=req_el_key or os.getenv("ELEVENLABS_API_KEY", ""),
+        elevenlabs_voice_id=req_el_voice or os.getenv("ELEVENLABS_VOICE_ID", ""),
+        groq_key=os.getenv("GROQ_API_KEY", "")
     )
     
     try:
