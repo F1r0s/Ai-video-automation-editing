@@ -25,6 +25,7 @@ from typing import Optional, Callable
 
 import requests
 from PIL import Image, ImageDraw, ImageFont, ImageSequence, ImageColor
+from groq import Groq
 # Monkey-patch for MoviePy 1.0.3 + Pillow 10+
 if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = Image.LANCZOS
@@ -55,9 +56,10 @@ if not FONT_PATH.exists():
 
 # Sticker asset paths
 STICKER_ASSETS = {
-    "circle": ASSETS_DIR / "circle gif.webp",
-    "arrow": ASSETS_DIR / "arrow gif.webp",
-    "finger": ASSETS_DIR / "Hand pointing finger.webp",
+    "circle": ASSETS_DIR / "Circle Mark Sticker by bartek ujma.gif",
+    "arrow": ASSETS_DIR / "arrow animated.gif",
+    "finger": ASSETS_DIR / "hand pointing finger.gif",
+    "cartoon": ASSETS_DIR / "Cartoon Look Sticker by Javi Brations.gif",
 }
 
 
@@ -77,9 +79,11 @@ def _resolve_rgb(color_value: str, fallback: tuple[int, int, int]) -> tuple[int,
 class VideoProcessor:
     """Processes a single video into a CPA promo clip."""
 
-    def __init__(self, elevenlabs_key: str = "", elevenlabs_voice_id: str = ""):
+    def __init__(self, elevenlabs_key: str = "", elevenlabs_voice_id: str = "", groq_key: str = ""):
         self.el_key      = elevenlabs_key
         self.el_voice_id = elevenlabs_voice_id or "EXAVITQu4vr4xnSDxMaL"
+        self.groq_key    = groq_key
+        self.groq_client = Groq(api_key=groq_key) if groq_key else None
         self._whisper     = None
         self.sticker_cache = {}  # Cache loaded sticker assets
         self._load_sticker_assets()
@@ -157,50 +161,55 @@ class VideoProcessor:
             log.error(f"gTTS fallback failed: {e}")
             return False
 
+    def _generate_llama_script(self, game_name: str) -> str:
+        """Use Groq Llama 3 to generate a high-retention vertical video script."""
+        if not self.groq_client:
+            # Fallback to hardcoded script if no key
+            return (
+                f"Wait. Are you still playing {game_name} the normal way? "
+                f"This changes EVERYTHING. Watch till the end and grab the link below!"
+            )
+            
+        prompt = f"""
+        Write a short, punchy 30-second script for a mobile game 'MOD' promo video for the game '{game_name}'.
+        The script should sound like a viral TikTok/Reels hook.
+        Structure:
+        1. Strong hook (Wait, stop scrolling!)
+        2. The problem (playing the normal way is too slow/hard)
+        3. The solution (this new 2025 mod gives unlimited resources)
+        4. Proof (I tested this and it's insane)
+        5. Call to action (Link on screen, tap it now!)
+        Keep it under 80 words. Direct speech only.
+        """
+        
+        try:
+            completion = self.groq_client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.7,
+                max_tokens=150
+            )
+            return completion.choices[0].message.content.strip()
+        except Exception as e:
+            log.warning(f"Llama script generation failed: {e}")
+            return f"Check out this secret {game_name} trick for twenty twenty five. It is completely free and works on all devices. Tap the link now!"
+
     def _make_voiceover(self, game_name: str) -> Path:
         """
-        Generate a LONG voiceover script that fills ~30 seconds.
+        Generate a dynamic script via Llama and convert to audio via ElevenLabs.
         """
-        gn_lower = game_name.lower()
-        if "mod" in gn_lower or "hack" in gn_lower or "unlimited" in gn_lower:
-            hook = (
-                f"Wait. Are you still playing {game_name} the normal way? "
-                f"You are missing out on the best mod of twenty twenty five. "
-                f"This gives you unlimited money, unlimited gems, "
-                f"and every single resource completely for free. "
-                f"No root needed. No jailbreak. Works on all devices. "
-                f"And the best part? There is absolutely no ban. "
-                f"I tested this myself and it works perfectly. "
-                f"The link is right here on screen. "
-                f"Tap it right now before they patch it. "
-                f"Also make sure to subscribe to my channel "
-                f"so you never miss the next working mod. "
-                f"Go ahead. Download it now. You will not regret it."
-            )
-        else:
-            hook = (
-                f"Wait. Are you still playing {game_name} like everyone else? "
-                f"You need to check out this secret trick for twenty twenty five. "
-                f"This will completely change the way you play. "
-                f"It is completely free and works on almost any device. "
-                f"And the best part? It is super easy to do. "
-                f"I tested this myself and the results are absolutely insane. "
-                f"The link to see how it works is right here on screen. "
-                f"Tap it right now before the secret gets out. "
-                f"Also make sure to subscribe to my channel "
-                f"so you never miss the next big update. "
-                f"Go ahead. Check it out now. You will be amazed."
-            )
+        script = self._generate_llama_script(game_name)
+        log.info(f"Generated Script: {script[:100]}...")
+
         out = Path(tempfile.mktemp(suffix=".mp3"))
         
-        # Try ElevenLabs first
-        success = self._elevenlabs_tts(hook, out)
+        # Try ElevenLabs first (Keep this integration as requested!)
+        success = self._elevenlabs_tts(script, out)
         
         # Try gTTS fallback
         if not success:
-            success = self._gtts_fallback(hook, out)
+            success = self._gtts_fallback(script, out)
             
-        # If BOTH fail (network error, rate limit, etc), create a silent audio file so it doesn't crash!
         if not success or not out.exists():
             log.warning("ALL TTS FAILED! Using 1-second silent audio to prevent crash.")
             from moviepy.editor import AudioClip
@@ -219,9 +228,31 @@ class VideoProcessor:
         return self._whisper
 
     def _transcribe(self, audio_path: Path) -> list[dict]:
-        model = self._load_whisper()
-        result = model.transcribe(str(audio_path), language="en", fp16=False)
-        return result.get("segments", [])
+        """Transcribe audio using Groq Whisper (whisper-large-v3)."""
+        if not self.groq_client:
+            log.warning("No Groq client available for transcription.")
+            return []
+
+        try:
+            with open(audio_path, "rb") as file:
+                # Use Groq Whisper API for lightning-fast transcription
+                transcription = self.groq_client.audio.transcriptions.create(
+                    file=(audio_path.name, file.read()),
+                    model="whisper-large-v3",
+                    response_format="verbose_json",
+                )
+                # Convert Groq segment objects to dicts
+                segments = []
+                for s in getattr(transcription, "segments", []):
+                    segments.append({
+                        "start": s.get("start") if isinstance(s, dict) else getattr(s, "start", 0),
+                        "end": s.get("end") if isinstance(s, dict) else getattr(s, "end", 0),
+                        "text": s.get("text") if isinstance(s, dict) else getattr(s, "text", ""),
+                    })
+                return segments
+        except Exception as e:
+            log.error(f"Groq Whisper transcription failed: {e}")
+            return []
 
     def _make_subtitle_clips(self, segments: list[dict], w: int, h: int, color: str, pos_y: float) -> list:
         clips = []
@@ -425,6 +456,15 @@ class VideoProcessor:
                     paste_y = fy - scaled_sz // 2
                     bg.paste(scaled_finger, (paste_x, paste_y), scaled_finger)
 
+                elif item["kind"] == "cartoon" and "cartoon" in self.sticker_cache:
+                    # Render cartoon asset with pulse animation
+                    cartoon_img = self._sticker_frame(self.sticker_cache["cartoon"], t)
+                    scaled_sz = int(240 * sz * pulse)
+                    scaled_cartoon = cartoon_img.resize((scaled_sz, scaled_sz), Image.LANCZOS)
+                    paste_x = cx - scaled_sz // 2
+                    paste_y = cy - scaled_sz // 2
+                    bg.paste(scaled_cartoon, (paste_x, paste_y), scaled_cartoon)
+
                 elif item["kind"] == "text":
                     txt = item.get("text", "Click Here!")
                     fs = max(40, int(144 * sz * pulse))
@@ -542,12 +582,15 @@ class VideoProcessor:
         except Exception as e:
             log.warning(f"Subtitle generation failed: {e}")
 
-        # 6. CPA link bar (first 25 seconds only, disappears for channel overlay)
-        _progress(70, "Adding CPA link bar...")
+        # 6. CPA link bar (Shown only at the end with the channel screenshot)
+        _progress(70, "Adding CPA link bar to end screen...")
         try:
-            cpa_duration = max(1, clip.duration - 5)  # stop 5s before end
-            cpa_bar = self._make_cpa_bar(landing_url, cpa_duration, link_color=landing_link_color, game_name=game_name)
-            clip = CompositeVideoClip([clip, cpa_bar])
+            cpa_start = max(0, clip.duration - 5)
+            cpa_duration = clip.duration - cpa_start
+            if cpa_duration > 0:
+                cpa_bar = self._make_cpa_bar(landing_url, cpa_duration, link_color=landing_link_color, game_name=game_name)
+                cpa_bar = cpa_bar.set_start(cpa_start)
+                clip = CompositeVideoClip([clip, cpa_bar])
         except Exception as e:
             log.warning(f"CPA bar failed: {e}")
 
@@ -581,6 +624,7 @@ class VideoProcessor:
             out_path,
             codec="libx264", audio_codec="aac",
             fps=30, preset="fast", threads=4,
+            pix_fmt="yuv420p",
             logger=None,   # suppress verbose ffmpeg bar in desktop GUI
         )
 

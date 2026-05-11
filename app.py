@@ -98,13 +98,13 @@ class CanvasItem:
                 self.ids.append(bg_id)
             self.ids.append(self.canvas.create_text(x, y, text=self.text, fill=link_color, font=fnt))
             
-        elif self.kind in ("circle", "arrow", "finger"):
+        elif self.kind in ("circle", "arrow", "finger", "cartoon"):
             # If GIF frames loaded, draw the current frame as image
             if self._gif_frames:
                 # Resize current PIL frame according to scale
                 frame = self._gif_frames[self._gif_index]
                 # Determine target size based on a base size per kind
-                base_sizes = {"circle": (80, 80), "arrow": (80, 80), "finger": (72, 72)}
+                base_sizes = {"circle": (80, 80), "arrow": (80, 80), "finger": (72, 72), "cartoon": (80, 80)}
                 bw, bh = base_sizes.get(self.kind, (64, 64))
                 tw, th = max(1, int(bw * s)), max(1, int(bh * s))
                 resized = frame.resize((tw, th), Image.LANCZOS)
@@ -124,6 +124,9 @@ class CanvasItem:
                 elif self.kind == "finger":
                     fs = max(8, int(36 * s))
                     self.ids.append(self.canvas.create_text(x, y, text="\u261d", fill="red", font=("Segoe UI Emoji", fs)))
+                elif self.kind == "cartoon":
+                    r = int(30 * s)
+                    self.ids.append(self.canvas.create_rectangle(x-r, y-r, x+r, y+r, outline="blue", width=max(1, int(3*s))))
             
         elif self.kind == "text":
             fs = max(8, int(13 * s))
@@ -165,9 +168,10 @@ class CanvasItem:
     def _load_gif_frames(self):
         from PIL import Image, ImageSequence
         mapping = {
-            "circle": "circle.gif",
-            "arrow": "arrow.gif",
-            "finger": "Hand pointing finger.gif",
+            "circle": "Circle Mark Sticker by bartek ujma.gif",
+            "arrow": "arrow animated.gif",
+            "finger": "hand pointing finger.gif",
+            "cartoon": "Cartoon Look Sticker by Javi Brations.gif",
         }
         asset = mapping.get(self.kind)
         if not asset:
@@ -239,7 +243,7 @@ class CanvasItem:
             self._gif_index = (self._gif_index + 1) % len(self._gif_frames)
             frame = self._gif_frames[self._gif_index]
             s = self.scale
-            base_sizes = {"circle": (80, 80), "arrow": (80, 80), "finger": (72, 72)}
+            base_sizes = {"circle": (80, 80), "arrow": (80, 80), "finger": (72, 72), "cartoon": (80, 80)}
             bw, bh = base_sizes.get(self.kind, (64, 64))
             tw, th = max(1, int(bw * s)), max(1, int(bh * s))
             resized = frame.resize((tw, th), Image.LANCZOS)
@@ -646,7 +650,7 @@ class VideoAutomationApp:
         tk.Label(right, text="(placed at top of frame — drag to reposition)",
                  font=("Segoe UI",8), fg=FG_DIM, bg=BG).pack(pady=(0,2))
         tb1 = tk.Frame(right, bg=BG); tb1.pack(pady=2)
-        for txt, kind in [("O Circle", "circle"), ("\u25bc Arrow", "arrow"), ("\u261d Finger", "finger")]:
+        for txt, kind in [("O Circle", "circle"), ("\u25bc Arrow", "arrow"), ("\u261d Finger", "finger"), ("★ Cartoon", "cartoon")]:
             tk.Button(tb1, text=txt, font=("Segoe UI",9,"bold"), fg="#fff", bg="#e53935",
                       relief="flat", padx=8, pady=2,
                       command=lambda k=kind: self.editor.add_item(k, PV_W//2, int(PV_H * 0.12))
