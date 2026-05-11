@@ -82,7 +82,7 @@ class VideoProcessor:
 
     def __init__(self, elevenlabs_key: str = "", elevenlabs_voice_id: str = "", groq_key: str = ""):
         self.el_key      = elevenlabs_key
-        self.el_voice_id = elevenlabs_voice_id or "EXAVITQu4vr4xnSDxMaL"
+        self.el_voice_id = elevenlabs_voice_id or "pqHfZKP75CvOlQylNhV4"  # Adam (male)
         self.groq_key    = groq_key
         self.groq_client = Groq(api_key=groq_key) if groq_key else None
         self._whisper     = None
@@ -706,15 +706,24 @@ Rules:
 
         # 6. Transcribe voiceover for subtitles
         _progress(55, "Transcribing voiceover for subtitles...")
+        segments = []
         try:
-            segments = self._transcribe(vo_path)
-            # Filter subtitles: only show during the recording segment (after hook)
-            recording_segs = [s for s in segments if s["start"] >= hook_duration]
-            sub_clips = self._make_subtitle_clips(recording_segs, TARGET_W, TARGET_H, caption_color, caption_pos)
+            # Always transcribe the reward-specific audio
+            transcribe_path = vo_path_reward if vo_path_reward.exists() else vo_path
+            segments = self._transcribe(transcribe_path)
+            log.info(f"Got {len(segments)} subtitle segments from transcription")
+            # Show ALL subtitle segments — voiceover covers full video (hook + recording)
+            # Segments during hook (0-5s) are filtered by position so they still
+            # appear correctly timed over the full combined clip.
+            sub_clips = self._make_subtitle_clips(segments, TARGET_W, TARGET_H, caption_color, caption_pos)
             if sub_clips:
+                log.info(f"Adding {len(sub_clips)} subtitle clips to video")
                 combined = CompositeVideoClip([combined] + sub_clips)
+            else:
+                log.warning("No subtitle clips were generated — check font path and segment data")
         except Exception as e:
-            log.warning(f"Subtitle generation failed: {e}")
+            import traceback
+            log.warning(f"Subtitle generation failed: {e}\n{traceback.format_exc()}")
             segments = []
 
         # 7. Find trigger time for stickers (when AI says "link", "download", etc.)
