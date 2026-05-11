@@ -403,8 +403,11 @@ class VideoProcessor:
     def _make_channel_overlay(self, screenshot_path: str, landing_url: str,
                                duration: float, overlay_data: list = None,
                                layout: dict = None, link_color: str = "#64dcff") -> Optional[CompositeVideoClip]:
-        """Animated channel overlay with user-positioned screenshot, link, and stickers."""
-        if not screenshot_path or not Path(screenshot_path).exists():
+        """Animated channel overlay with user-positioned screenshot, link, and stickers.
+        Even without a screenshot, stickers will still be rendered on a transparent base."""
+        has_screenshot = screenshot_path and Path(screenshot_path).exists()
+        # Only bail out if there's NOTHING to render
+        if not has_screenshot and not overlay_data:
             return None
 
         import numpy as np
@@ -418,17 +421,20 @@ class VideoProcessor:
         link_y = lay.get("link_y", 0.96)
         link_scale = lay.get("link_scale", 1.0)
 
-        # Pre-render screenshot at correct position
-        ss_img = Image.open(screenshot_path).convert("RGBA")
-        ss_img = ss_img.resize((int(ss_img.width * ss_zoom), int(ss_img.height * ss_zoom)), Image.LANCZOS)
-        scale = TARGET_W / ss_img.width
-        nw, nh = TARGET_W, int(ss_img.height * scale)
-        if nh > TARGET_H - 120:
-            scale = (TARGET_H - 120) / ss_img.height
-            nw, nh = int(ss_img.width * scale), int(ss_img.height * scale)
-        ss_img = ss_img.resize((nw, nh), Image.LANCZOS)
-        ss_px = (TARGET_W - nw) // 2 + int(ss_ox * TARGET_W)
-        ss_py = (TARGET_H - nh) // 2 + int(ss_oy * TARGET_H)
+        # Pre-render screenshot at correct position (if provided)
+        ss_img = None
+        ss_px = ss_py = 0
+        if has_screenshot:
+            ss_img = Image.open(screenshot_path).convert("RGBA")
+            ss_img = ss_img.resize((int(ss_img.width * ss_zoom), int(ss_img.height * ss_zoom)), Image.LANCZOS)
+            scale = TARGET_W / ss_img.width
+            nw, nh = TARGET_W, int(ss_img.height * scale)
+            if nh > TARGET_H - 120:
+                scale = (TARGET_H - 120) / ss_img.height
+                nw, nh = int(ss_img.width * scale), int(ss_img.height * scale)
+            ss_img = ss_img.resize((nw, nh), Image.LANCZOS)
+            ss_px = (TARGET_W - nw) // 2 + int(ss_ox * TARGET_W)
+            ss_py = (TARGET_H - nh) // 2 + int(ss_oy * TARGET_H)
 
         try:
             sticker_font = ImageFont.truetype(str(FONT_PATH), 144) if FONT_PATH.exists() else ImageFont.load_default()
@@ -441,9 +447,12 @@ class VideoProcessor:
 
         def make_frame(t):
             """Generate animated frame at time t."""
-            bg = Image.new("RGBA", (TARGET_W, TARGET_H), (0, 0, 0, 255))
-            bg.paste(ss_img, (ss_px, ss_py))
+            # Transparent background when no screenshot (stickers composited over video)
+            bg = Image.new("RGBA", (TARGET_W, TARGET_H), (0, 0, 0, 0) if not has_screenshot else (0, 0, 0, 255))
+            if ss_img:
+                bg.paste(ss_img, (ss_px, ss_py))
             draw = ImageDraw.Draw(bg)
+
 
             # Pulse factor: oscillates 0.85 to 1.15 over 0.6s
             pulse = 1.0 + 0.15 * math.sin(t * 10)
@@ -527,26 +536,34 @@ class VideoProcessor:
                     paste_y = cy - txt_img.height // 2
                     bg.paste(txt_img, (paste_x, paste_y), txt_img)
 
-            # Link text
-            lx = int(link_x * TARGET_W)
-            ly = int(link_y * TARGET_H)
-            
-            # Convert hex color to RGB
-            try:
-                from PIL import ImageColor
-                link_rgb = ImageColor.getrgb(link_color)
-                link_fill = link_rgb + (255,)  # add alpha
-            except:
-                link_fill = (100, 220, 255, 255)  # fallback cyan
-            
-            bb = draw.textbbox((0,0), landing_url, font=link_font)
-            ltw = bb[2] - bb[0]
-            draw.rounded_rectangle([(lx-ltw//2-30, ly-36), (lx+ltw//2+30, ly+40)], radius=24, fill=(0,0,0,200))
-            draw.text((lx-ltw//2, ly-26), landing_url, fill=link_fill, font=link_font)
+            # Link text — only draw when screenshot is shown (CPA bar handles it otherwise)
+            if has_screenshot and landing_url:
+                lx = int(link_x * TARGET_W)
+                ly = int(link_y * TARGET_H)
+                try:
+                    from PIL import ImageColor
+                    link_rgb = ImageColor.getrgb(link_color)
+                    link_fill = link_rgb + (255,)
+                except Exception:
+                    link_fill = (100, 220, 255, 255)
+                bb = draw.textbbox((0, 0), landing_url, font=link_font)
+                ltw = bb[2] - bb[0]
+                draw.rounded_rectangle([(lx-ltw//2-30, ly-36), (lx+ltw//2+30, ly+40)], radius=24, fill=(0,0,0,200))
+                draw.text((lx-ltw//2, ly-26), landing_url, fill=link_fill, font=link_font)
 
-            return np.array(bg.convert("RGB"))
+            # Return RGBA for transparent overlay (stickers), RGB for screenshot overlay
+            if has_screenshot:
+                return np.array(bg.convert("RGB"))
+            else:
+                return np.array(bg)  # RGBA — MoviePy will use alpha channel for compositing
 
-        return VideoClip(make_frame, duration=duration).set_fps(30)
+        if has_screenshot:
+            return VideoClip(make_frame, duration=duration).set_fps(30)
+        else:
+            # Transparent RGBA overlay — stickers float over the video
+            clip_ov = VideoClip(make_frame, duration=duration).set_fps(30)
+            clip_ov = clip_ov.set_ismask(False)  # treat as normal clip, not mask
+            return clip_ov
 
     # ── Force 9:16 ─────────────────────────────────────────────────────────────
 
@@ -810,18 +827,26 @@ Rules:
 
         # 9. Stickers & channel overlay — triggered at keyword time
         _progress(80, "Adding stickers & channel overlay...")
+        log.info(f"overlay_data has {len(overlay_data or [])} sticker(s), sticker_start={sticker_start:.1f}s, channel_screenshot={bool(channel_screenshot)}")
         try:
             overlay_dur = total_duration - sticker_start
             if overlay_dur > 0 and (overlay_data or channel_screenshot):
                 overlay = self._make_channel_overlay(
-                    channel_screenshot, landing_url, overlay_dur,
+                    channel_screenshot or "", landing_url, overlay_dur,
                     overlay_data or [], layout or {}, link_color=landing_link_color
                 )
                 if overlay:
                     overlay = overlay.set_start(sticker_start)
                     combined = CompositeVideoClip([combined, overlay])
+                    log.info(f"Sticker overlay added starting at t={sticker_start:.1f}s for {overlay_dur:.1f}s")
+                else:
+                    log.warning("Sticker overlay returned None — check overlay_data")
+            else:
+                log.warning(f"Sticker overlay skipped: overlay_dur={overlay_dur:.1f}, overlay_data={bool(overlay_data)}, screenshot={bool(channel_screenshot)}")
         except Exception as e:
-            log.warning(f"Overlay failed: {e}")
+            import traceback
+            log.warning(f"Overlay failed: {e}\n{traceback.format_exc()}")
+
 
         # 10. Export
         _progress(90, "Rendering final Reward-First video...")
