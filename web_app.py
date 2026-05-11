@@ -327,11 +327,12 @@ def cloud_process():
     # Process Video
     req_el_key = request.form.get('elevenlabs_key', '').strip()
     req_el_voice = request.form.get('elevenlabs_voice_id', '').strip()
+    req_groq_key = request.form.get('groq_key', '').strip()
     
     processor = VideoProcessor(
         elevenlabs_key=req_el_key or os.getenv("ELEVENLABS_API_KEY", ""),
         elevenlabs_voice_id=req_el_voice or os.getenv("ELEVENLABS_VOICE_ID", ""),
-        groq_key=os.getenv("GROQ_API_KEY", "")
+        groq_key=req_groq_key or os.getenv("GROQ_API_KEY", "")
     )
     
     try:

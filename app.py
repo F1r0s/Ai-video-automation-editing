@@ -1058,6 +1058,7 @@ class VideoAutomationApp:
                         'export_quality': export_quality,
                         'elevenlabs_voice_id': os.getenv("ELEVENLABS_VOICE_ID", ""),
                         'elevenlabs_key': os.getenv("ELEVENLABS_API_KEY", ""),
+                        'groq_key': os.getenv("GROQ_API_KEY", ""),
                         'mode': 'reward_first' if reward_mode else 'legacy'
                     }
                     resp = req.post(f"{cloud_url}/api/cloud_process", data=data, files=files, timeout=1800)
