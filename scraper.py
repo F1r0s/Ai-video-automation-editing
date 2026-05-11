@@ -79,6 +79,8 @@ class VideoScraper:
         all_items = []
         for search_url in searches:
             items = self._run_ytdlp_search(search_url, max_results)
+            for item in items:
+                item["platform"] = "YouTube Shorts"
             all_items.extend(items)
             if len(all_items) >= max_results:
                 break
@@ -110,24 +112,32 @@ class VideoScraper:
     def _search_tiktok(self, query: str, max_results: int) -> list[dict]:
         """Search TikTok for vertical videos via DuckDuckGo."""
         items = self._search_duckduckgo(f"site:tiktok.com {query}", max_results)
+        for item in items:
+            item["platform"] = "TikTok"
         log.info(f"  TikTok: found {len(items)} result(s)")
         return items
 
     def _search_instagram_reels(self, query: str, max_results: int) -> list[dict]:
         """Search Instagram Reels via DuckDuckGo."""
         items = self._search_duckduckgo(f"site:instagram.com/reel/ {query}", max_results)
+        for item in items:
+            item["platform"] = "Instagram Reels"
         log.info(f"  Instagram Reels: found {len(items)} result(s)")
         return items
 
     def _search_facebook_reels(self, query: str, max_results: int) -> list[dict]:
         """Search Facebook Reels via DuckDuckGo."""
         items = self._search_duckduckgo(f"site:facebook.com/reel/ {query}", max_results)
+        for item in items:
+            item["platform"] = "Facebook Reels"
         log.info(f"  Facebook Reels: found {len(items)} result(s)")
         return items
 
     def _search_x(self, query: str, max_results: int) -> list[dict]:
         """Search X (Twitter) for video posts via DuckDuckGo."""
         items = self._search_duckduckgo(f"site:twitter.com {query} video", max_results)
+        for item in items:
+            item["platform"] = "X (Twitter)"
         log.info(f"  X/Additional: found {len(items)} result(s)")
         return items
 
@@ -275,9 +285,9 @@ class VideoScraper:
         mp4s = sorted(self.cfg.RAW_DIR.glob("*.mp4"), key=lambda p: p.stat().st_mtime)
         return mp4s[-1] if mp4s else None
 
-    def download_hook(self, video_meta: dict, hook_seconds: int = 5) -> Optional[Path]:
+    def download_hook(self, video_meta: dict, hook_start: int = 0, hook_end: int = 10) -> Optional[Path]:
         """
-        Download only the first N seconds of a video for the 'reward hook'.
+        Download only a specific section of a video for the 'reward hook'.
         Uses yt-dlp --download-sections for fast extraction.
         Returns the local path on success, None on failure.
         """
@@ -292,20 +302,21 @@ class VideoScraper:
         )[:60]
         output_tmpl = str(self.cfg.RAW_DIR / f"hook_{safe_title}_%(id)s.%(ext)s")
 
-        end_time = f"00:00:{hook_seconds:02d}"
+        start_time = f"{hook_start // 3600:02d}:{(hook_start % 3600) // 60:02d}:{hook_start % 60:02d}"
+        end_time = f"{hook_end // 3600:02d}:{(hook_end % 3600) // 60:02d}:{hook_end % 60:02d}"
         cmd = [
             "yt-dlp",
             "-f", "bestvideo[vcodec^=avc][height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[vcodec^=avc][ext=mp4]/best[ext=mp4]",
             "-o", output_tmpl,
             "--merge-output-format", "mp4",
             "--no-playlist",
-            "--download-sections", f"*00:00:00-{end_time}",
+            "--download-sections", f"*{start_time}-{end_time}",
         ]
         if self.cfg.YT_DLP_COOKIES:
             cmd += ["--cookies", self.cfg.YT_DLP_COOKIES]
         cmd.append(video_url)
 
-        log.info(f"  Downloading {hook_seconds}s hook: {video_url[:80]}")
+        log.info(f"  Downloading hook ({start_time} to {end_time}): {video_url[:80]}")
         try:
             subprocess.run(cmd, check=True, capture_output=True, timeout=120)
             log.info(f"  Hook download succeeded!")

@@ -109,7 +109,7 @@ class VideoEditor:
         if not self.groq_client:
             return f"Wait — are you playing {game_name} without this mod? This changes EVERYTHING. Watch till the end and grab the link below!"
             
-        prompt = f"Write a short, punchy 30-second TikTok script for a mod for '{game_name}'. High energy, viral hook, call to action. Max 80 words."
+        prompt = f"Write a short, punchy 30-second TikTok script for a mod for '{game_name}'. High energy, viral hook, call to action. Max 80 words. IMPORTANT: Only talk about the game '{game_name}'. Do NOT mention any other games like 'MadOut 2' or 'MadOut2 BigCityOnline'."
         try:
             completion = self.groq_client.chat.completions.create(
                 model="llama-3.1-8b-instant",

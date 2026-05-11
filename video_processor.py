@@ -186,6 +186,7 @@ class VideoProcessor:
         4. Proof (I tested this and it's insane)
         5. Call to action (Link on screen, tap it now!)
         Keep it under 80 words. Direct speech only.
+        IMPORTANT: Only talk about the game '{game_name}'. Do NOT mention any other games like 'MadOut 2' or 'MadOut2 BigCityOnline'. Focus exclusively on '{game_name}'.
         """
         
         try:
@@ -282,14 +283,16 @@ class VideoProcessor:
             log.error(f"Groq Whisper transcription failed: {e}")
             return []
 
-    def _make_subtitle_clips(self, segments: list[dict], w: int, h: int, color: str, pos_y: float) -> list:
+    def _make_subtitle_clips(self, segments: list[dict], w: int, h: int, color: str, pos_y: float, font_name: str = "Montserrat-Bold") -> list:
         clips = []
         try:
             import numpy as np
             from moviepy.editor import ImageClip
 
             subtitle_rgb = _resolve_rgb(color, (255, 255, 255))
-            font_path = str(FONT_PATH) if FONT_PATH.exists() else "Arial"
+            font_path = str(ASSETS_DIR / f"{font_name}.ttf")
+            if not Path(font_path).exists():
+                font_path = str(FONT_PATH) if FONT_PATH.exists() else "Arial"
             try:
                 font = ImageFont.truetype(font_path, max(64, int(h * 0.050)))
             except IOError:
@@ -663,7 +666,7 @@ class VideoProcessor:
         clip = clip.without_audio()
         return clip
 
-    def _generate_reward_script(self, game_name: str, landing_url: str = "") -> str:
+    def _generate_reward_script(self, game_name: str, landing_url: str = "", custom_script: str = "", hook_duration: float = 10.0) -> str:
         """Generate a bridging script for the reward-first workflow using Llama 3."""
         if not self.groq_client:
             return (
@@ -672,22 +675,44 @@ class VideoProcessor:
                 f"Go to the link on screen. Tap download. It is completely free. Go now!"
             )
 
-        prompt = f"""Write a short, punchy 30-second voiceover script for a viral TikTok video about '{game_name}'.
-
+        if custom_script:
+            prompt = f"""Write a short, punchy voiceover script for a viral TikTok video about '{game_name}'.
 The video has TWO parts:
-Part 1 (first 5 seconds): Shows insane, jaw-dropping gameplay footage as a hook.
-Part 2 (remaining 25 seconds): Shows a step-by-step screen recording of how to download the mod.
+Part 1 (first {hook_duration} seconds): Shows insane, jaw-dropping gameplay footage as a hook.
+Part 2 (remaining time): Shows a step-by-step screen recording of how to download the mod.
+
+For Part 2, you MUST base it on the following instructions provided by the user:
+"{custom_script}"
 
 Structure the script EXACTLY like this:
-1. HOOK (0-5s): "Wait... you need to see THIS gameplay..." — grab attention instantly
-2. BRIDGE (5-8s): "Want this on YOUR device? Let me show you exactly how..."
-3. WALKTHROUGH (8-22s): "Step one, go to the link on screen... step two, tap download..."
-4. CTA (22-30s): "It works on all devices. Link is on screen right now. Download the mod and thank me later!"
+1. HOOK (0-{hook_duration}s): Grab attention instantly.
+2. WALKTHROUGH: Explain the exact steps from the user's instructions clearly and quickly.
+3. CTA: "It works on all devices. Link is on screen right now. Download the mod and thank me later!"
+
+Rules:
+- Keep it concise. Direct speech only. No stage directions.
+- Use the phrase "link on screen" or "tap download" at least once.
+- Sound excited and urgent like a real TikToker.
+- IMPORTANT: Only talk about the game '{game_name}'. Do NOT mention any other games like 'MadOut 2' or 'MadOut2 BigCityOnline'. Focus exclusively on '{game_name}'.
+- The link is: {landing_url}"""
+        else:
+            prompt = f"""Write a short, punchy voiceover script for a viral TikTok video about '{game_name}'.
+
+The video has TWO parts:
+Part 1 (first {hook_duration} seconds): Shows insane, jaw-dropping gameplay footage as a hook.
+Part 2 (remaining time): Shows a step-by-step screen recording of how to download the mod.
+
+Structure the script EXACTLY like this:
+1. HOOK (0-{hook_duration}s): "Wait... you need to see THIS gameplay..." — grab attention instantly
+2. BRIDGE: "Want this on YOUR device? Let me show you exactly how..."
+3. WALKTHROUGH: "Step one, go to the link on screen... step two, tap download..."
+4. CTA: "It works on all devices. Link is on screen right now. Download the mod and thank me later!"
 
 Rules:
 - Keep it under 80 words. Direct speech only. No stage directions.
 - Use the phrase "link on screen" or "tap download" at least once.
 - Sound excited and urgent like a real TikToker.
+- IMPORTANT: Only talk about the game '{game_name}'. Do NOT mention any other games like 'MadOut 2' or 'MadOut2 BigCityOnline'. Focus exclusively on '{game_name}'.
 - The link is: {landing_url}"""
 
         try:
@@ -742,6 +767,8 @@ Rules:
         landing_link_color: str = "#64dcff",
         link_font_name: str = "Montserrat-Bold",
         progress_callback: Optional[Callable] = None,
+        custom_script: str = "",
+        hook_duration: float = 10.0,
     ) -> str:
         """
         Reward-First pipeline:
@@ -754,10 +781,8 @@ Rules:
                 progress_callback(pct, msg)
             log.info(f"  [{pct}%] {msg}")
 
-        hook_duration = 5.0
-
         # 1. Prepare the hook clip
-        _progress(5, "Preparing 5s gameplay hook...")
+        _progress(5, f"Preparing {hook_duration}s gameplay hook...")
         hook_clip = self._prepare_hook(scraped_video_path, hook_duration)
 
         # 2. Validate and prepare the manual recording
@@ -771,7 +796,7 @@ Rules:
 
         # 4. Generate bridging voiceover script
         _progress(35, "Generating AI bridging script...")
-        script = self._generate_reward_script(game_name, landing_url)
+        script = self._generate_reward_script(game_name, landing_url, custom_script, hook_duration)
         log.info(f"Reward Script: {script[:120]}...")
 
         # 5. TTS voiceover
@@ -807,7 +832,7 @@ Rules:
             # Show ALL subtitle segments — voiceover covers full video (hook + recording)
             # Segments during hook (0-5s) are filtered by position so they still
             # appear correctly timed over the full combined clip.
-            sub_clips = self._make_subtitle_clips(segments, TARGET_W, TARGET_H, caption_color, caption_pos)
+            sub_clips = self._make_subtitle_clips(segments, TARGET_W, TARGET_H, caption_color, caption_pos, link_font_name)
             if sub_clips:
                 log.info(f"Adding {len(sub_clips)} subtitle clips to video")
                 combined = CompositeVideoClip([combined] + sub_clips)
@@ -954,7 +979,7 @@ Rules:
             segments = self._transcribe(vo_path)
             # Only show subtitles during the first 25 seconds (gameplay part)
             filtered_segs = [s for s in segments if s["start"] < (MAX_DUR - 5)]
-            sub_clips = self._make_subtitle_clips(filtered_segs, TARGET_W, TARGET_H, caption_color, caption_pos)
+            sub_clips = self._make_subtitle_clips(filtered_segs, TARGET_W, TARGET_H, caption_color, caption_pos, link_font_name)
             if sub_clips:
                 clip = CompositeVideoClip([clip] + sub_clips)
         except Exception as e:

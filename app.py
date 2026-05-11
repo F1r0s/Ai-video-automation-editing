@@ -604,6 +604,10 @@ class VideoAutomationApp:
         self.caption_color = tk.StringVar(value="yellow")
         self.caption_pos = tk.DoubleVar(value=0.58)
         self.link_font = tk.StringVar(value="Montserrat-Bold")
+        self.custom_script = tk.StringVar()
+        self.hook_start = tk.IntVar(value=0)
+        self.hook_end = tk.IntVar(value=10)
+        
         self.processing = False
         self.pause_event = threading.Event()
         self.pause_event.set()
@@ -642,10 +646,11 @@ class VideoAutomationApp:
         tk.Frame(left, bg=ACCENT, height=2).pack(fill="x", pady=(8,12))
 
         self._step(left,"1","Game Name",self.game_name,entry=True)
-        self._step_spin(left,"2","Number of Videos",self.max_videos)
+        self._step_spin(left,"2","Max Search Results",self.max_videos)
         self.screenshot_path_label = self._step(left,"3","Channel Screenshot",self.screenshot_path, btn="Choose...",cmd=self._pick_ss)
         self._step(left,"4","CPA Landing Page Link",self.landing_url,entry=True)
         self.recording_path_label = self._step(left,"5","Screen Recording (Walkthrough)",self.manual_recording_path, btn="Choose...",cmd=self._pick_recording)
+        self._step(left,"6","Custom Walkthrough Script (Optional)",self.custom_script,entry=True)
 
         # Caption Settings
         cap_frame = tk.Frame(left, bg=BG_CARD, highlightthickness=1, highlightbackground=BG_INPUT)
@@ -715,6 +720,33 @@ class VideoAutomationApp:
                    activeforeground=FG).pack(anchor="w", padx=10)
         self.settings_panel.pack_forget()
 
+        # Results Listbox
+        self.results_frame = tk.Frame(left, bg=BG_CARD, highlightthickness=1, highlightbackground=BG_INPUT)
+        self.results_frame.pack(fill="x", pady=3)
+        rf_hdr = tk.Frame(self.results_frame, bg=BG_CARD)
+        rf_hdr.pack(fill="x", padx=10, pady=4)
+        tk.Label(rf_hdr, text="Search Results (Select to process)", font=("Segoe UI", 9, "bold"), fg=FG_DIM, bg=BG_CARD).pack(side="left")
+        
+        self.search_btn = tk.Button(rf_hdr, text="🔍 SEARCH", font=("Segoe UI", 9, "bold"), fg="#fff", bg=ACCENT, relief="flat", padx=8, pady=2, command=self._on_search)
+        self.search_btn.pack(side="right")
+        
+        trim_frame = tk.Frame(self.results_frame, bg=BG_CARD)
+        trim_frame.pack(fill="x", padx=10, pady=(0, 4))
+        tk.Label(trim_frame, text="Trim Hook from (s):", font=("Segoe UI", 8), fg=FG_DIM, bg=BG_CARD).pack(side="left")
+        tk.Spinbox(trim_frame, from_=0, to=999, textvariable=self.hook_start, width=4, font=("Segoe UI", 8), bg=BG_INPUT, fg=FG).pack(side="left", padx=(4, 10))
+        tk.Label(trim_frame, text="to (s):", font=("Segoe UI", 8), fg=FG_DIM, bg=BG_CARD).pack(side="left")
+        tk.Spinbox(trim_frame, from_=1, to=999, textvariable=self.hook_end, width=4, font=("Segoe UI", 8), bg=BG_INPUT, fg=FG).pack(side="left", padx=(4, 0))
+        
+        list_frame = tk.Frame(self.results_frame, bg=BG_CARD)
+        list_frame.pack(fill="both", expand=True, padx=10, pady=(0,8))
+        self.results_listbox = tk.Listbox(list_frame, bg=BG_INPUT, fg=FG, selectbackground=ACCENT, selectmode="multiple", height=6, font=("Segoe UI", 9))
+        scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=self.results_listbox.yview)
+        self.results_listbox.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+        self.results_listbox.pack(side="left", fill="both", expand=True)
+        
+        self.current_search_results = []
+
         bf = tk.Frame(left, bg=BG); bf.pack(pady=(12,6))
         self.gen_btn = tk.Button(bf, text="GENERATE", font=("Segoe UI",14,"bold"),
             fg="#fff", bg=GREEN, relief="flat", padx=25, pady=10, command=self._on_gen)
@@ -722,6 +754,9 @@ class VideoAutomationApp:
         self.pause_btn = tk.Button(bf, text="PAUSE", font=("Segoe UI",12,"bold"),
             fg="#fff", bg=ORANGE, relief="flat", padx=15, pady=10, command=self._on_pause, state="disabled")
         self.pause_btn.pack(side="left")
+        self.cancel_btn = tk.Button(bf, text="X", font=("Segoe UI",12,"bold"),
+            fg="#fff", bg=RED, relief="flat", padx=15, pady=10, command=self._on_cancel, state="disabled")
+        self.cancel_btn.pack(side="left", padx=(8,0))
 
         self.status_lbl = tk.Label(left, text="Ready", font=("Segoe UI",10), fg=FG_DIM, bg=BG, anchor="w")
         self.status_lbl.pack(fill="x")
@@ -1042,8 +1077,76 @@ class VideoAutomationApp:
             self.pause_event.set(); self.pause_btn.configure(text="PAUSE",bg=ORANGE)
             self._sts("Resuming...",ACCENT); self._log("--- RESUMED ---")
 
+    def _on_cancel(self):
+        if not self.processing: return
+        self._log("--- CANCELLED BY USER ---")
+        self._sts("Cancelled", RED)
+        self.processing = False
+        self.pause_event.set()
+        self.pause_btn.configure(state="disabled", text="PAUSE", bg=ORANGE)
+        self.cancel_btn.configure(state="disabled")
+        self.gen_btn.configure(state="normal", bg=GREEN)
+        self.editor.set_locked(False)
+
     def _wait(self):
-        while not self.pause_event.is_set(): time.sleep(0.3)
+        while not self.pause_event.is_set():
+            if not self.processing: return
+            time.sleep(0.3)
+        if not self.processing: raise Exception("Cancelled by user")
+
+    def _on_search(self):
+        g = self.game_name.get().strip()
+        mx = self.max_videos.get()
+        if not g:
+            messagebox.showwarning("Missing", "Enter game name first.")
+            return
+            
+        self.search_btn.configure(state="disabled", text="Searching...")
+        self.results_listbox.delete(0, tk.END)
+        self.current_search_results = []
+        self._sts("Searching...", ACCENT)
+        self._log(f"Searching for '{g}' across platforms...")
+        
+        threading.Thread(target=self._search_thread, args=(g, mx), daemon=True).start()
+
+    def _search_thread(self, game, mx):
+        from scraper import VideoScraper
+        from config import Config
+        cfg = Config()
+        scraper = VideoScraper(config=cfg)
+        cands = scraper.search(game, max_results=mx)
+        
+        def update_ui():
+            self.search_btn.configure(state="normal", text="🔍 SEARCH")
+            if not cands:
+                self._sts("No results found.", RED)
+                self._log("No videos found.")
+                return
+            
+            self._sts(f"Found {len(cands)} results.", GREEN)
+            self._log(f"Found {len(cands)} results. Select from the list to process.")
+            self.current_search_results = cands
+            for i, c in enumerate(cands):
+                title = c.get("title", "Unknown")[:50]
+                platform = c.get("platform", "Unknown")
+                dur = c.get("duration", 0)
+                dur_str = f"[{dur}s]" if dur else ""
+                
+                # Aspect ratio check
+                w = c.get("width")
+                h = c.get("height")
+                if w and h:
+                    ratio = "[9:16]" if w < h else "[16:9]"
+                else:
+                    ratio = "[9:16]" if platform in ("TikTok", "Instagram Reels", "YouTube Shorts", "Facebook Reels") else "[?]"
+                    
+                display_text = f"[{platform}] {ratio} {title} {dur_str}"
+                self.results_listbox.insert("end", display_text)
+                
+            if cands:
+                self.results_listbox.selection_set(0)
+                
+        self.root.after(0, update_ui)
 
     def _on_gen(self):
         g=self.game_name.get().strip(); ss=self.screenshot_path.get().strip()
@@ -1051,9 +1154,22 @@ class VideoAutomationApp:
         if not g: messagebox.showwarning("Missing","Enter game name."); return
         if not u: messagebox.showwarning("Missing","Enter CPA link."); return
         if self.processing: return
+        
+        selected_indices = self.results_listbox.curselection()
+        if not self.current_search_results:
+            messagebox.showinfo("Search First", "Please click '🔍 SEARCH' to find videos, then select which ones you want to process.")
+            return
+            
+        if not selected_indices:
+            messagebox.showwarning("No Selection", "Please select at least one video from the search results to process.")
+            return
+            
+        vids_to_process = [self.current_search_results[i] for i in selected_indices]
+        
         self.processing=True; self.pause_event.set()
         self.gen_btn.configure(state="disabled",bg=FG_DIM)
-        self.pause_btn.configure(state="normal"); self._prg(0)
+        self.pause_btn.configure(state="normal")
+        self.cancel_btn.configure(state="normal"); self._prg(0)
 
         # Lock the editor so stickers cannot be moved while render/upload is running.
         self.editor.set_locked(True)
@@ -1067,23 +1183,21 @@ class VideoAutomationApp:
         cloud_mode = self.render_cloud.get()
         
         rec = self.manual_recording_path.get().strip()
+        custom_txt = self.custom_script.get().strip()
+        hs = self.hook_start.get()
+        he = self.hook_end.get()
         reward_mode = bool(rec and os.path.exists(rec))
         
         self._log(f"Starting: {g} {'(Reward-First)' if reward_mode else '(Legacy)'} {'(Cloud)' if cloud_mode else '(Local)'}")
-        threading.Thread(target=self._run, args=(g,c,ss,u,ov,layout,cloud_mode,rec), daemon=True).start()
+        threading.Thread(target=self._run, args=(g,vids_to_process,ss,u,ov,layout,cloud_mode,rec,custom_txt,hs,he), daemon=True).start()
 
-    def _run(self, game, mx, ss, url, overlays, layout, cloud_mode, recording_path=""):
+    def _run(self, game, vids, ss, url, overlays, layout, cloud_mode, recording_path="", custom_script="", hook_start=0, hook_end=10):
         cfg=Config()
         reward_mode = bool(recording_path and os.path.exists(recording_path))
         
-        self.root.after(0,self._sts,"Searching...",ACCENT)
-        self.root.after(0,self._log,f"\n[1/3] Searching: '{game}'...")
         scraper=VideoScraper(config=cfg)
-        cands=scraper.search(game, max_results=mx*3)
-        if not cands:
-            self.root.after(0,self._log,"No videos found."); self._fin(0); return
-        self.root.after(0,self._log,f"  Found {len(cands)}."); self.root.after(0,self._prg,10)
-        vids=cands[:mx]
+        self.root.after(0,self._prg,10)
+        
         cloud_url = os.getenv("CLOUD_API_URL", "")
         export_quality = self.export_quality.get()
 
@@ -1108,10 +1222,12 @@ class VideoAutomationApp:
             self.root.after(0,self._sts,f"{i}/{len(vids)}: {t}",ACCENT)
             self.root.after(0,self._log,f"\n[2/3] Video {i}/{len(vids)}: {t}")
             
-            # Download: hook (5s) for reward mode, full for legacy
+            # Download: hook for reward mode, full for legacy
             if reward_mode:
-                self.root.after(0,self._log,"  Downloading 5s hook...")
-                raw=scraper.download_hook(m, hook_seconds=5)
+                h_dur = hook_end - hook_start
+                if h_dur <= 0: h_dur = 10
+                self.root.after(0,self._log,f"  Downloading hook (from {hook_start}s to {hook_end}s)...")
+                raw=scraper.download_hook(m, hook_start=hook_start, hook_end=hook_end)
             else:
                 self.root.after(0,self._log,"  Downloading...")
                 raw=scraper.download(m)
@@ -1139,7 +1255,10 @@ class VideoAutomationApp:
                         'elevenlabs_voice_id': os.getenv("ELEVENLABS_VOICE_ID", ""),
                         'elevenlabs_key': os.getenv("ELEVENLABS_API_KEY", ""),
                         'groq_key': os.getenv("GROQ_API_KEY", ""),
-                        'mode': 'reward_first' if reward_mode else 'legacy'
+                        'mode': 'reward_first' if reward_mode else 'legacy',
+                        'custom_script': custom_script,
+                        'hook_start': str(hook_start),
+                        'hook_end': str(hook_end)
                     }
                     resp = req.post(f"{cloud_url}/api/cloud_process", data=data, files=files, timeout=1800)
                     if resp.ok:
@@ -1175,7 +1294,9 @@ class VideoAutomationApp:
                             caption_pos=self.caption_pos.get(),
                             landing_link_color=self.landing_link_color.get(),
                             link_font_name=self.link_font.get(),
-                            progress_callback=lambda p, m: self.root.after(0, self._log, f"  [{p}%] {m}"),
+                            progress_callback=lambda p, msg: self.root.after(0, self._log, f"  [{p}%] {msg}"),
+                            custom_script=custom_script,
+                            hook_duration=hook_end - hook_start
                         )
                     else:
                         self.root.after(0, self._log, "  Rendering locally...")
@@ -1223,6 +1344,7 @@ class VideoAutomationApp:
 
         self.root.after(0, lambda: self.gen_btn.configure(state="normal", bg=GREEN))
         self.root.after(0, lambda: self.pause_btn.configure(state="disabled", text="PAUSE", bg=ORANGE))
+        self.root.after(0, lambda: self.cancel_btn.configure(state="disabled"))
         self.root.after(0, lambda: self.editor.set_locked(False))
         self.processing = False
 
