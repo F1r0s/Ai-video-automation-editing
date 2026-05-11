@@ -191,37 +191,14 @@ class CanvasItem:
             self._gif_index = 0
             return
 
-        def _clean_background(frame_rgba):
-            px = frame_rgba.load()
-            w, h = frame_rgba.size
-            target = px[0, 0]
-            tolerance = 28
-
-            def close(c1, c2):
-                return all(abs(c1[i] - c2[i]) <= tolerance for i in range(3))
-
-            from collections import deque
-            queue = deque([(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)])
-            seen = set(queue)
-            while queue:
-                x, y = queue.popleft()
-                if not close(px[x, y], target):
-                    continue
-                r, g, b, a = px[x, y]
-                px[x, y] = (r, g, b, 0)
-                for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
-                    if 0 <= nx < w and 0 <= ny < h and (nx, ny) not in seen:
-                        seen.add((nx, ny))
-                        queue.append((nx, ny))
-            return frame_rgba
-
         try:
             img = Image.open(p)
             frames = []
             durations = []
             for frame in ImageSequence.Iterator(img):
-                frames.append(_clean_background(frame.convert("RGBA")))
-                durations.append(frame.info.get("duration", 100))
+                rgba = frame.convert("RGBA")
+                frames.append(rgba.copy())
+                durations.append(max(40, int(frame.info.get("duration", img.info.get("duration", 100) or 100))))
             if frames:
                 self._gif_frames = frames
                 self._gif_durations = durations
