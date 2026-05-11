@@ -147,15 +147,69 @@ class CanvasItem:
             self.ids.append(self.canvas.create_text(x, y, text=self.text, fill="yellow", font=fnt))
 
         elif self.kind == "safe_zone":
-            # TikTok / Shorts UI Safe Zones (Visual Guide Only)
-            # Top info bar
-            self.ids.append(self.canvas.create_rectangle(0, 0, PV_W, int(PV_H*0.12), fill="yellow", stipple="gray25", outline=""))
-            # Bottom UI bar
-            self.ids.append(self.canvas.create_rectangle(0, int(PV_H*0.82), PV_W, PV_H, fill="yellow", stipple="gray25", outline=""))
-            # Right side buttons
-            self.ids.append(self.canvas.create_rectangle(int(PV_W*0.82), int(PV_H*0.12), PV_W, int(PV_H*0.82), fill="red", stipple="gray25", outline=""))
-            # Core Label
-            self.ids.append(self.canvas.create_text(PV_W//2, PV_H//2, text="CORE VISIBLE AREA\n(Safe Zone)", fill="white", font=("Arial", 10, "bold"), justify="center"))
+            # ── 9:16 Platform Safe Zone Guide ──────────────────────────────────
+            # Dead zones: areas covered by platform UI on TikTok/Shorts/Reels/Facebook
+            #
+            # TOP dead zone  (0% – 12%)  : Status bar, platform header
+            # BOTTOM dead zone (80% – 100%): Like/comment/share buttons + caption
+            # RIGHT dead zone  (82% – 100%): Action buttons (like, comment, share, follow)
+
+            # ── Dead zones (red/orange hatch) ──────────────────────────────────
+            # Top dead zone
+            self.ids.append(self.canvas.create_rectangle(
+                0, 0, PV_W, int(PV_H * 0.12),
+                fill="#ff3300", stipple="gray25", outline=""))
+            self.ids.append(self.canvas.create_text(
+                PV_W // 2, int(PV_H * 0.06),
+                text="⛔ DEAD ZONE — Platform UI", fill="#ff9980",
+                font=("Arial", 7, "bold"), justify="center"))
+
+            # Bottom dead zone
+            self.ids.append(self.canvas.create_rectangle(
+                0, int(PV_H * 0.80), PV_W, PV_H,
+                fill="#ff3300", stipple="gray25", outline=""))
+            self.ids.append(self.canvas.create_text(
+                PV_W // 2, int(PV_H * 0.90),
+                text="⛔ DEAD ZONE — Buttons + Caption Bar", fill="#ff9980",
+                font=("Arial", 7, "bold"), justify="center"))
+
+            # Right side dead zone (action buttons)
+            self.ids.append(self.canvas.create_rectangle(
+                int(PV_W * 0.82), int(PV_H * 0.12), PV_W, int(PV_H * 0.80),
+                fill="#ff6600", stipple="gray25", outline=""))
+            self.ids.append(self.canvas.create_text(
+                int(PV_W * 0.91), int(PV_H * 0.46),
+                text="⛔\nBTNS", fill="#ffcc99",
+                font=("Arial", 6, "bold"), justify="center"))
+
+            # ── Content zones (labeled guides) ─────────────────────────────────
+            # Caption zone (55% – 75%)
+            self.ids.append(self.canvas.create_rectangle(
+                0, int(PV_H * 0.55), int(PV_W * 0.82), int(PV_H * 0.75),
+                outline="#00ff88", dash=(5, 3), width=1))
+            self.ids.append(self.canvas.create_text(
+                int(PV_W * 0.41), int(PV_H * 0.65),
+                text="✅ CAPTION ZONE", fill="#00ff88",
+                font=("Arial", 7, "bold"), justify="center"))
+
+            # Screenshot / Main content zone (12% – 55%)
+            self.ids.append(self.canvas.create_rectangle(
+                0, int(PV_H * 0.12), int(PV_W * 0.82), int(PV_H * 0.55),
+                outline="#00aaff", dash=(5, 3), width=1))
+            self.ids.append(self.canvas.create_text(
+                int(PV_W * 0.41), int(PV_H * 0.335),
+                text="📸 SCREENSHOT / MAIN CONTENT", fill="#00aaff",
+                font=("Arial", 7, "bold"), justify="center"))
+
+            # CPA link zone (75% – 80%)
+            self.ids.append(self.canvas.create_rectangle(
+                0, int(PV_H * 0.75), int(PV_W * 0.82), int(PV_H * 0.80),
+                outline="#ffdd00", dash=(5, 3), width=1))
+            self.ids.append(self.canvas.create_text(
+                int(PV_W * 0.41), int(PV_H * 0.775),
+                text="🔗 CPA LINK / CTA BAR", fill="#ffdd00",
+                font=("Arial", 7, "bold"), justify="center"))
+
 
         # Re-apply z-order: screenshot at back, then others, then handles
         self.canvas.tag_lower(self.ids[0] if self.ids else "none")
