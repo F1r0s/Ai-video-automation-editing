@@ -453,7 +453,7 @@ class CanvasEditor:
             self.selected.rotation = (self.start_rotation + angle_diff) % 360
             self.selected.draw()
             
-        self.draw_selection()
+        self._redraw_all()
 
     def on_release(self, e):
         if self.is_dragging and self.selected and self.selected.kind == "screenshot":
@@ -462,7 +462,7 @@ class CanvasEditor:
             self.selected.draw()
         self.is_dragging = False
         self.drag_mode = None
-        self.draw_selection()
+        self._redraw_all()
 
     def on_delete_key(self, _event=None):
         if self.locked:
