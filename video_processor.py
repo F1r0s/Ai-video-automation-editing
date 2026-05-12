@@ -752,16 +752,25 @@ class VideoProcessor:
         """
         Load scraped gameplay, find the most energetic window, convert to 9:16, strip audio.
         For Shorts: resize. For long-form: letterbox (no cropping).
-        Only the hook window is trimmed (this is the intended short-clip hook behaviour).
         """
         best_start = self._find_best_hook_start(video_path, hook_duration)
         clip = VideoFileClip(video_path)
         end = min(clip.duration, best_start + hook_duration)
-        clip = clip.subclip(best_start, end)
-        # Use _prepare_for_916 — note: we pass no input_path since we already subclipped
-        clip = self._prepare_for_916(clip)
-        clip = clip.without_audio()
-        return clip
+        sub = clip.subclip(best_start, end)
+        
+        # Optimization: Save subclip to temp file so FFmpeg can handle the 9:16 letterbox fast
+        tmp_sub = Path(tempfile.mktemp(suffix="_sub.mp4"))
+        sub.write_videofile(str(tmp_sub), codec="libx264", audio_codec="aac", logger=None, preset="ultrafast")
+        sub.close()
+        clip.close()
+
+        # Now use fast FFmpeg letterbox
+        final_hook = VideoFileClip(str(tmp_sub))
+        final_hook = self._prepare_for_916(final_hook, input_path=str(tmp_sub))
+        
+        # Cleanup the temp subclip file after loading back into memory/MoviePy
+        # (Note: MoviePy keeps file handles open, so we might need to be careful with cleanup)
+        return final_hook.without_audio()
 
     def _validate_recording(self, recording_path: str):
         """Load user's manual screen recording, convert to 9:16 (letterbox if needed), strip audio."""
@@ -952,39 +961,37 @@ Rules:
         sticker_start = self._find_trigger_time(segments, hook_duration)
         log.info(f"Stickers will appear at t={sticker_start:.1f}s")
 
-        # 8. CPA link bar — shown during recording segment only
-        _progress(70, "Adding CPA link bar...")
-        try:
-            cpa_duration = total_duration - hook_duration
-            if cpa_duration > 0:
-                cpa_bar = self._make_cpa_bar(landing_url, cpa_duration, link_color=landing_link_color, game_name=game_name, link_font_name=link_font_name)
-                cpa_bar = cpa_bar.set_start(hook_duration)
-                combined = CompositeVideoClip([combined, cpa_bar])
-        except Exception as e:
-            log.warning(f"CPA bar failed: {e}")
-
-        # 9. Stickers & channel overlay — triggered at keyword time
-        _progress(80, "Adding stickers & channel overlay...")
-        log.info(f"overlay_data has {len(overlay_data or [])} sticker(s), sticker_start={sticker_start:.1f}s, channel_screenshot={bool(channel_screenshot)}")
-        try:
-            overlay_dur = total_duration - sticker_start
-            if overlay_dur > 0 and (overlay_data or channel_screenshot):
+        # 9. Assemble all layers into a SINGLE CompositeVideoClip (FLATTENED)
+        # This is much faster than nesting CompositeVideoClip calls.
+        _progress(85, "Assembling video layers...")
+        all_layers = [combined] # Base: hook + recording + audio
+        
+        if sub_clips:
+            all_layers.extend(sub_clips)
+        
+        if overlay_dur > 0 and (overlay_data or channel_screenshot):
+            try:
                 overlay = self._make_channel_overlay(
                     channel_screenshot or "", landing_url, overlay_dur,
                     overlay_data or [], layout or {}, link_color=landing_link_color, link_font_name=link_font_name
                 )
                 if overlay:
                     overlay = overlay.set_start(sticker_start)
-                    combined = CompositeVideoClip([combined, overlay])
-                    log.info(f"Sticker overlay added starting at t={sticker_start:.1f}s for {overlay_dur:.1f}s")
-                else:
-                    log.warning("Sticker overlay returned None — check overlay_data")
-            else:
-                log.warning(f"Sticker overlay skipped: overlay_dur={overlay_dur:.1f}, overlay_data={bool(overlay_data)}, screenshot={bool(channel_screenshot)}")
-        except Exception as e:
-            import traceback
-            log.warning(f"Overlay failed: {e}\n{traceback.format_exc()}")
+                    all_layers.append(overlay)
+            except Exception as e:
+                log.warning(f"Overlay failed: {e}")
 
+        try:
+            cpa_duration = total_duration - hook_duration
+            if cpa_duration > 0:
+                cpa_bar = self._make_cpa_bar(landing_url, cpa_duration, link_color=landing_link_color, game_name=game_name, link_font_name=link_font_name)
+                cpa_bar = cpa_bar.set_start(hook_duration)
+                all_layers.append(cpa_bar)
+        except Exception as e:
+            log.warning(f"CPA bar failed: {e}")
+
+        # Final Flattened Composition
+        final_video = CompositeVideoClip(all_layers, size=(TARGET_W, TARGET_H))
 
         # 10. Export
         _progress(90, "Rendering final Reward-First video...")
@@ -997,13 +1004,25 @@ Rules:
 
         out_path = str(out_dir / f"{stem}_reward_promo.mp4")
 
-        combined.write_videofile(
+        final_video.write_videofile(
             out_path,
-            codec="libx264", audio_codec="aac",
-            fps=30, preset="fast", threads=4,
-            ffmpeg_params=['-pix_fmt', 'yuv420p'],
+            codec="libx264", 
+            audio_codec="aac",
+            fps=30, 
+            preset="faster", 
+            threads=8,
+            ffmpeg_params=['-pix_fmt', 'yuv420p', '-crf', '24'],
             logger=None,
         )
+
+        # Cleanup
+        try:
+            vo_path.unlink(missing_ok=True)
+            if vo_path_reward.exists():
+                vo_path_reward.unlink(missing_ok=True)
+        except Exception:
+            pass
+        final_video.close()
 
         # Cleanup
         try:
