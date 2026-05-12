@@ -743,7 +743,9 @@ class VideoAutomationApp:
         
         list_frame = tk.Frame(self.results_frame, bg=BG_CARD)
         list_frame.pack(fill="both", expand=True, padx=10, pady=(0,4))
-        self.results_listbox = tk.Listbox(list_frame, bg=BG_INPUT, fg=FG, selectbackground=ACCENT, selectmode="multiple", height=6, font=("Consolas", 8))
+        self.results_listbox = tk.Listbox(list_frame, bg=BG_INPUT, fg=FG, selectbackground=ACCENT,
+                                          selectmode="extended",  # single click = one item, Ctrl+Click = multi
+                                          height=6, font=("Consolas", 8))
         scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=self.results_listbox.yview)
         self.results_listbox.configure(yscrollcommand=scrollbar.set)
         scrollbar.pack(side="right", fill="y")
@@ -1181,21 +1183,35 @@ class VideoAutomationApp:
                 video_url = c.get("webpage_url") or c.get("url", "")
                 short_url = video_url[:55] + "..." if len(video_url) > 55 else video_url
 
-                # Aspect ratio check
+                # ── Ratio detection (width/height not available from --flat-playlist) ──
+                # Use real dimensions if present, otherwise check URL + platform signals
                 w = c.get("width")
                 h = c.get("height")
-                if w and h:
-                    ratio = "9:16" if w < h else "16:9"
+                if w and h and w > 0 and h > 0:
+                    ratio = "9:16" if h > w else "16:9"
                 else:
-                    ratio = "9:16" if platform in ("TikTok", "Instagram Reels", "YouTube Shorts", "Facebook Reels") else "?:?"
+                    url_lower = video_url.lower()
+                    title_lower = title.lower()
+                    # YouTube Shorts have /shorts/ in URL
+                    # TikTok/Instagram/Facebook Reels are always 9:16
+                    is_short = (
+                        "/shorts/" in url_lower
+                        or "tiktok.com" in url_lower
+                        or "instagram.com/reel" in url_lower
+                        or "facebook.com/reel" in url_lower
+                        or platform in ("TikTok", "Instagram Reels", "Facebook Reels")
+                        or "short" in title_lower
+                        or "#shorts" in title_lower
+                    )
+                    ratio = "9:16" if is_short else "16:9"
 
                 display_text = f"[{ratio}] {dur_str} {title}  |  {short_url}"
                 self.results_listbox.insert("end", display_text)
-                # Colour long-form differently for easy spotting
-                if ratio == "16:9":
-                    self.results_listbox.itemconfig(i, fg=ORANGE)
-                else:
+                # Colour code: green = already vertical, orange = needs letterboxing
+                if ratio == "9:16":
                     self.results_listbox.itemconfig(i, fg=GREEN)
+                else:
+                    self.results_listbox.itemconfig(i, fg=ORANGE)
 
 
             if cands:
