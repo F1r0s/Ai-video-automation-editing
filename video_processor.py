@@ -937,6 +937,7 @@ Rules:
         # 6. Transcribe voiceover for subtitles
         _progress(55, "Transcribing voiceover for subtitles...")
         segments = []
+        sub_clips = []   # always defined even if transcription fails
         try:
             # Always transcribe the reward-specific audio
             transcribe_path = vo_path_reward if vo_path_reward.exists() else vo_path
@@ -961,14 +962,17 @@ Rules:
         sticker_start = self._find_trigger_time(segments, hook_duration)
         log.info(f"Stickers will appear at t={sticker_start:.1f}s")
 
+        # Pre-calculate durations needed for layers
+        overlay_dur = total_duration - sticker_start
+
         # 9. Assemble all layers into a SINGLE CompositeVideoClip (FLATTENED)
         # This is much faster than nesting CompositeVideoClip calls.
         _progress(85, "Assembling video layers...")
-        all_layers = [combined] # Base: hook + recording + audio
-        
+        all_layers = [combined]  # Base: hook + recording + audio
+
         if sub_clips:
             all_layers.extend(sub_clips)
-        
+
         if overlay_dur > 0 and (overlay_data or channel_screenshot):
             try:
                 overlay = self._make_channel_overlay(
