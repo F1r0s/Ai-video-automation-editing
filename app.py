@@ -1180,7 +1180,7 @@ class VideoAutomationApp:
                 self._sts("No results found.", RED)
                 self._log("No videos found.")
                 return
-            
+
             self._sts(f"Found {len(cands)} results.", GREEN)
 
             # ── Apply ratio filter ──────────────────────────────────────────
@@ -1202,20 +1202,22 @@ class VideoAutomationApp:
                 )
                 return "9:16" if is_short else "16:9"
 
+            # Use a NEW variable so Python doesn't treat `cands` as local
             if ratio_f == "9:16 only":
-                cands = [c for c in cands if _detect_ratio(c) == "9:16"]
+                visible = [c for c in cands if _detect_ratio(c) == "9:16"]
             elif ratio_f == "16:9 only":
-                cands = [c for c in cands if _detect_ratio(c) == "16:9"]
-            # "Both" = no filter
+                visible = [c for c in cands if _detect_ratio(c) == "16:9"]
+            else:
+                visible = list(cands)  # "Both" — show everything
 
-            if not cands:
+            if not visible:
                 self._sts(f"No results matched '{ratio_f}' filter.", ORANGE)
-                self._log(f"No videos matched the '{ratio_f}' filter. Try changing Format Filter or search again.")
+                self._log(f"No videos matched '{ratio_f}'. Try 'Both' or search again.")
                 return
 
-            self._log(f"Showing {len(cands)} result(s) after '{ratio_f}' filter.")
-            self.current_search_results = cands
-            for i, c in enumerate(cands):
+            self._log(f"Showing {len(visible)} result(s) [{ratio_f}].")
+            self.current_search_results = visible
+            for i, c in enumerate(visible):
                 title = c.get("title", "Unknown")[:45]
                 platform = c.get("platform", "Unknown")
                 dur = c.get("duration", 0)
@@ -1223,31 +1225,10 @@ class VideoAutomationApp:
                 video_url = c.get("webpage_url") or c.get("url", "")
                 short_url = video_url[:55] + "..." if len(video_url) > 55 else video_url
 
-                # ── Ratio detection (width/height not available from --flat-playlist) ──
-                # Use real dimensions if present, otherwise check URL + platform signals
-                w = c.get("width")
-                h = c.get("height")
-                if w and h and w > 0 and h > 0:
-                    ratio = "9:16" if h > w else "16:9"
-                else:
-                    url_lower = video_url.lower()
-                    title_lower = title.lower()
-                    # YouTube Shorts have /shorts/ in URL
-                    # TikTok/Instagram/Facebook Reels are always 9:16
-                    is_short = (
-                        "/shorts/" in url_lower
-                        or "tiktok.com" in url_lower
-                        or "instagram.com/reel" in url_lower
-                        or "facebook.com/reel" in url_lower
-                        or platform in ("TikTok", "Instagram Reels", "Facebook Reels")
-                        or "short" in title_lower
-                        or "#shorts" in title_lower
-                    )
-                    ratio = "9:16" if is_short else "16:9"
+                ratio = _detect_ratio(c)  # reuse the same helper — no duplication
 
                 display_text = f"[{ratio}] {dur_str} {title}  |  {short_url}"
                 self.results_listbox.insert("end", display_text)
-                # Colour code: green = already vertical, orange = needs letterboxing
                 if ratio == "9:16":
                     self.results_listbox.itemconfig(i, fg=GREEN)
                 else:
