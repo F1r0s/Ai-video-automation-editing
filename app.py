@@ -88,7 +88,10 @@ class CanvasItem:
             
         elif self.kind == "link":
             if not self.text: return
-            fnt = ("Arial", max(8, int(13 * s)))
+            tk_fnt = getattr(self.editor, "link_font", "Arial").split("-")[0]
+            if tk_fnt == "Comic": tk_fnt = "Comic Sans MS"
+            if tk_fnt == "Montserrat": tk_fnt = "Arial"
+            fnt = (tk_fnt, max(8, int(13 * s)), "bold")
             link_color = getattr(self.editor, "link_color", "#64dcff")
             # Dummy text to get bbox
             t_id = self.canvas.create_text(x, y, text=self.text, font=fnt)
@@ -619,6 +622,7 @@ class VideoAutomationApp:
         self.landing_link_color.trace_add("write", lambda *_: self._sync_link_color())
         self.caption_pos.trace_add("write", lambda *_: self._update_caption_preview())
         self.caption_color.trace_add("write", lambda *_: self._update_caption_preview())
+        self.link_font.trace_add("write", lambda *_: self._sync_link_font())
         self._build_ui()
 
     def _build_ui(self):
@@ -823,6 +827,7 @@ class VideoAutomationApp:
         
         self.editor = CanvasEditor(self.canvas)
         self.editor.link_color = self.landing_link_color.get()
+        self.editor.link_font = self.link_font.get()
         self.canvas.create_text(PV_W//2, PV_H//2, text="Choose a screenshot\nto see preview", fill=FG_DIM, font=("Segoe UI",11), justify="center", tags="ph")
 
         # Stickers toolbar
@@ -920,6 +925,13 @@ class VideoAutomationApp:
         if link:
             link.draw()
 
+    def _sync_link_font(self):
+        if getattr(self, "editor", None):
+            self.editor.link_font = self.link_font.get()
+            link = next((i for i in self.editor.items if i.kind == "link"), None)
+            if link: link.draw()
+            self._update_caption_preview()
+
     def _update_link(self):
         url = self.landing_url.get().strip()
         link = next((i for i in self.editor.items if i.kind == "link"), None)
@@ -939,10 +951,14 @@ class VideoAutomationApp:
         color = self.caption_color.get()
         y_pos = int(PV_H * pos)
         
+        tk_fnt = self.link_font.get().split("-")[0]
+        if tk_fnt == "Comic": tk_fnt = "Comic Sans MS"
+        if tk_fnt == "Montserrat": tk_fnt = "Arial"
+        
         # Remove old dummy caption if exists
         self.editor.canvas.delete("dummy_caption")
         text = "Llama 3 Generated Subtitle"
-        fnt = ("Segoe UI", max(10, int(15 * (PV_W/300))), "bold")
+        fnt = (tk_fnt, max(10, int(15 * (PV_W/300))), "bold")
         
         # Draw stroke/background
         t_id = self.editor.canvas.create_text(PV_W//2, y_pos, text=text, font=fnt, tags="dummy_caption")
@@ -1238,11 +1254,20 @@ class VideoAutomationApp:
                 if cloud_mode:
                     self.root.after(0, self._log, "  Uploading to Cloud Rendering...")
                     import requests as req
-                    files = {'video': open(str(raw), 'rb')}
-                    if ss and os.path.exists(ss):
-                        files['screenshot'] = open(ss, 'rb')
-                    if reward_mode:
-                        files['manual_recording'] = open(recording_path, 'rb')
+                    from requests.adapters import HTTPAdapter
+                    from urllib3.util.retry import Retry
+
+                    # Build a session with retry on connection errors
+                    session = req.Session()
+                    retry = Retry(
+                        total=3,
+                        backoff_factor=2,
+                        status_forcelist=[502, 503, 504],
+                        allowed_methods=["POST"]
+                    )
+                    session.mount("https://", HTTPAdapter(max_retries=retry))
+                    session.mount("http://",  HTTPAdapter(max_retries=retry))
+
                     data = {
                         'game': game, 'url': url,
                         'caption_color': self.caption_color.get(),
@@ -1260,7 +1285,31 @@ class VideoAutomationApp:
                         'hook_start': str(hook_start),
                         'hook_end': str(hook_end)
                     }
-                    resp = req.post(f"{cloud_url}/api/cloud_process", data=data, files=files, timeout=1800)
+
+                    # Open files safely — always closed in finally block
+                    fh_video = open(str(raw), 'rb')
+                    fh_ss = open(ss, 'rb') if ss and os.path.exists(ss) else None
+                    fh_rec = open(recording_path, 'rb') if reward_mode and os.path.exists(recording_path) else None
+                    try:
+                        files = {'video': (raw.name, fh_video, 'video/mp4')}
+                        if fh_ss:
+                            files['screenshot'] = (Path(ss).name, fh_ss, 'image/png')
+                        if fh_rec:
+                            files['manual_recording'] = (Path(recording_path).name, fh_rec, 'video/mp4')
+
+                        # Separate connect timeout (30s) and read/render timeout (3600s = 1hr)
+                        resp = session.post(
+                            f"{cloud_url}/api/cloud_process",
+                            data=data,
+                            files=files,
+                            timeout=(30, 3600)
+                        )
+                    finally:
+                        fh_video.close()
+                        if fh_ss: fh_ss.close()
+                        if fh_rec: fh_rec.close()
+                        session.close()
+
                     if resp.ok:
                         try:
                             payload = resp.json()
@@ -1278,7 +1327,8 @@ class VideoAutomationApp:
                             self.root.after(0, self._log, "  ✓ Cloud Render Started! Check Telegram.")
                         rendered += 1
                     else:
-                        self.root.after(0, self._log, f"  ✗ Cloud Error ({resp.status_code}): {resp.text}")
+                        self.root.after(0, self._log, f"  ✗ Cloud Error ({resp.status_code}): {resp.text[:300]}")
+
                 else:
                     if reward_mode:
                         self.root.after(0, self._log, "  Rendering Reward-First locally...")

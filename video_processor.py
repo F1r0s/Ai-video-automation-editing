@@ -576,17 +576,116 @@ class VideoProcessor:
             clip_ov = clip_ov.set_ismask(False)  # treat as normal clip, not mask
             return clip_ov
 
-    # ── Force 9:16 ─────────────────────────────────────────────────────────────
+    # ── Short vs Long-Form Detection ───────────────────────────────────────────
+
+    def _detect_video_type(self, clip: VideoFileClip) -> str:
+        """
+        Returns 'short' if the video is a YouTube Short:
+          - Vertical (height >= width, i.e. ratio <= 1.0) OR close to 9:16
+          - Duration <= 60 seconds
+        Returns 'longform' otherwise (horizontal, or over 60s).
+        """
+        w, h = clip.size
+        aspect = w / h  # < 1.0 means portrait/vertical
+        duration = clip.duration
+        is_vertical = aspect <= 1.05  # Allow slight tolerance (e.g. 1080x1080 square)
+        is_short = duration <= 60.0
+        if is_vertical and is_short:
+            log.info(f"Video type: SHORT ({w}x{h}, {duration:.1f}s) — resize only")
+            return "short"
+        log.info(f"Video type: LONG-FORM ({w}x{h}, {duration:.1f}s) — letterbox to 9:16")
+        return "longform"
+
+    def _letterbox_ffmpeg(self, input_path: str, output_path: str) -> bool:
+        """
+        Convert any video to 9:16 (1080x1920) using FFmpeg directly.
+        Strategy:
+          - Scales the video to fit within 1080x1920 (preserving aspect ratio)
+          - Fills the remaining space with a blurred+zoomed version of the same
+            video as the background (no black bars, no cropping of content).
+        This is 10-20x faster than doing it through MoviePy frame-by-frame.
+        """
+        import subprocess
+        filter_graph = (
+            # Background: scale-up and blur the original to fill 1080x1920
+            "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,"
+            "crop=1080:1920,"
+            "gblur=sigma=30[bg];"
+            # Foreground: scale to fit inside 1080x1920 without cropping
+            "[0:v]scale=1080:1920:force_original_aspect_ratio=decrease[fg];"
+            # Overlay foreground centred on blurred background
+            "[bg][fg]overlay=(W-w)/2:(H-h)/2"
+        )
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", input_path,
+            "-vf", filter_graph,
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-crf", "23",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "copy",
+            "-threads", "4",
+            output_path
+        ]
+        try:
+            result = subprocess.run(cmd, capture_output=True, timeout=600)
+            if result.returncode != 0:
+                err = result.stderr.decode('utf-8', errors='replace')[:500]
+                log.warning(f"FFmpeg letterbox failed (code {result.returncode}): {err}")
+                return False
+            log.info(f"FFmpeg letterbox done: {output_path}")
+            return True
+        except subprocess.TimeoutExpired:
+            log.error("FFmpeg letterbox timed out after 600s")
+            return False
+        except Exception as e:
+            log.error(f"FFmpeg letterbox exception: {e}")
+            return False
+
+    def _prepare_for_916(self, clip: VideoFileClip, input_path: str = "") -> VideoFileClip:
+        """
+        Smart 9:16 conversion:
+        - YouTube Shorts (vertical, ≤60s): simple resize, no cropping.
+        - Long-form (horizontal or >60s): letterbox via FFmpeg blurred background.
+          The full content is preserved — NO cropping, NO trimming.
+        Returns a MoviePy VideoFileClip ready at 1080x1920.
+        """
+        video_type = self._detect_video_type(clip)
+
+        if video_type == "short":
+            # Already vertical — just resize to exact target
+            return clip.resize((TARGET_W, TARGET_H))
+
+        # Long-form: use FFmpeg letterbox for speed and no-crop guarantee
+        if input_path and Path(input_path).exists():
+            tmp_lb = Path(tempfile.mktemp(suffix="_lb.mp4"))
+            success = self._letterbox_ffmpeg(input_path, str(tmp_lb))
+            if success and tmp_lb.exists():
+                clip.close()  # release original
+                return VideoFileClip(str(tmp_lb))
+            log.warning("FFmpeg letterbox failed — falling back to MoviePy letterbox")
+
+        # MoviePy fallback letterbox (slower but no FFmpeg dependency failure)
+        w, h = clip.size
+        # Scale to fit within 1080x1920
+        scale = min(TARGET_W / w, TARGET_H / h)
+        new_w = int(w * scale)
+        new_h = int(h * scale)
+        fg = clip.resize((new_w, new_h))
+        # Solid dark background
+        bg = ColorClip(size=(TARGET_W, TARGET_H), color=(15, 15, 15), duration=clip.duration)
+        letterboxed = CompositeVideoClip(
+            [bg, fg.set_position(("center", "center"))],
+            size=(TARGET_W, TARGET_H)
+        )
+        return letterboxed
+
+    # ── Force 9:16 (legacy alias, kept for compatibility) ───────────────────────
 
     def _force_vertical(self, clip: VideoFileClip) -> VideoFileClip:
-        w, h = clip.size
-        if w / h > 9 / 16:
-            new_w = int(h * 9 / 16)
-            clip = crop(clip, x_center=w / 2, width=new_w)
-        elif w / h < 9 / 16:
-            new_h = int(w * 16 / 9)
-            clip = crop(clip, y_center=h / 2, height=new_h)
-        return clip.resize((TARGET_W, TARGET_H))
+        """Legacy alias — kept for backward compatibility. Calls _prepare_for_916."""
+        return self._prepare_for_916(clip)
 
     # ── Reward-First helpers ───────────────────────────────────────────────────
 
@@ -650,19 +749,24 @@ class VideoProcessor:
             return 0.0
 
     def _prepare_hook(self, video_path: str, hook_duration: float = 5.0):
-        """Load scraped gameplay, find the most energetic 5s window, force 9:16, strip audio."""
+        """
+        Load scraped gameplay, find the most energetic window, convert to 9:16, strip audio.
+        For Shorts: resize. For long-form: letterbox (no cropping).
+        Only the hook window is trimmed (this is the intended short-clip hook behaviour).
+        """
         best_start = self._find_best_hook_start(video_path, hook_duration)
         clip = VideoFileClip(video_path)
         end = min(clip.duration, best_start + hook_duration)
         clip = clip.subclip(best_start, end)
-        clip = self._force_vertical(clip)
+        # Use _prepare_for_916 — note: we pass no input_path since we already subclipped
+        clip = self._prepare_for_916(clip)
         clip = clip.without_audio()
         return clip
 
     def _validate_recording(self, recording_path: str):
-        """Load user's manual screen recording, force 9:16, strip audio."""
+        """Load user's manual screen recording, convert to 9:16 (letterbox if needed), strip audio."""
         clip = VideoFileClip(recording_path)
-        clip = self._force_vertical(clip)
+        clip = self._prepare_for_916(clip, input_path=recording_path)
         clip = clip.without_audio()
         return clip
 
@@ -942,14 +1046,21 @@ Rules:
         _progress(5, "Loading video...")
         clip = VideoFileClip(input_path)
 
-        # 1. Trim to 30s
-        _progress(10, f"Trimming to {MAX_DUR}s...")
-        if clip.duration > MAX_DUR:
-            clip = clip.subclip(0, MAX_DUR)
+        # 1. Detect video type — Short or Long-form
+        video_type = self._detect_video_type(clip)
 
-        # 2. Force 9:16
-        _progress(20, "Cropping to 9:16 vertical...")
-        clip = self._force_vertical(clip)
+        # Only trim YouTube Shorts (≤60s). NEVER trim long-form videos.
+        _progress(10, f"Analyzing video type: {video_type}...")
+        if video_type == "short" and clip.duration > MAX_DUR:
+            log.info(f"Short video trimmed to {MAX_DUR}s")
+            clip = clip.subclip(0, MAX_DUR)
+        # Long-form: keep FULL length — no trimming
+
+        # 2. Convert to 9:16:
+        #    - Short: resize to 1080x1920
+        #    - Long-form: letterbox with blurred background (NO CROPPING)
+        _progress(20, "Converting to 9:16 vertical (letterbox for long-form, no cropping)...")
+        clip = self._prepare_for_916(clip, input_path=input_path)
 
         # 3. Strip original audio
         _progress(30, "Removing original voiceover...")

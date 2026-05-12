@@ -174,6 +174,7 @@ def generate():
     cap_color = request.form.get('caption_color', 'yellow')
     cap_pos = float(request.form.get('caption_pos', 0.58))
     link_color = request.form.get('landing_link_color', '#64dcff')  # cyan default
+    link_font = request.form.get('link_font', 'Montserrat-Bold')
     overlays_json = request.form.get('overlays', '[]')
     layout_json = request.form.get('layout', '{}')
 
@@ -243,7 +244,8 @@ def generate():
                 layout=layout,
                 caption_color=cap_color,
                 caption_pos=cap_pos,
-                landing_link_color=link_color
+                landing_link_color=link_color,
+                link_font_name=link_font
             )
             processed_files.append(out_path)
             log.info(f"Processed successfully: {out_path}")
