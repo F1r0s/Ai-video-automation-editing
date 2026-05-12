@@ -742,13 +742,27 @@ class VideoAutomationApp:
         tk.Spinbox(trim_frame, from_=1, to=999, textvariable=self.hook_end, width=4, font=("Segoe UI", 8), bg=BG_INPUT, fg=FG).pack(side="left", padx=(4, 0))
         
         list_frame = tk.Frame(self.results_frame, bg=BG_CARD)
-        list_frame.pack(fill="both", expand=True, padx=10, pady=(0,8))
-        self.results_listbox = tk.Listbox(list_frame, bg=BG_INPUT, fg=FG, selectbackground=ACCENT, selectmode="multiple", height=6, font=("Segoe UI", 9))
+        list_frame.pack(fill="both", expand=True, padx=10, pady=(0,4))
+        self.results_listbox = tk.Listbox(list_frame, bg=BG_INPUT, fg=FG, selectbackground=ACCENT, selectmode="multiple", height=6, font=("Consolas", 8))
         scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=self.results_listbox.yview)
         self.results_listbox.configure(yscrollcommand=scrollbar.set)
         scrollbar.pack(side="right", fill="y")
         self.results_listbox.pack(side="left", fill="both", expand=True)
-        
+        # Double-click opens the video URL in browser
+        self.results_listbox.bind("<Double-Button-1>", lambda e: self._open_selected_video_url())
+
+        # Open URL button row
+        url_btn_row = tk.Frame(self.results_frame, bg=BG_CARD)
+        url_btn_row.pack(fill="x", padx=10, pady=(0, 6))
+        tk.Button(
+            url_btn_row, text="🔗 Open Selected Video in Browser",
+            font=("Segoe UI", 8, "bold"), fg="#fff", bg="#1565c0",
+            relief="flat", padx=10, pady=3,
+            command=self._open_selected_video_url
+        ).pack(side="left")
+        tk.Label(url_btn_row, text="(or double-click a result)",
+                 font=("Segoe UI", 7), fg=FG_DIM, bg=BG_CARD).pack(side="left", padx=6)
+
         self.current_search_results = []
 
         bf = tk.Frame(left, bg=BG); bf.pack(pady=(12,6))
@@ -1110,6 +1124,23 @@ class VideoAutomationApp:
             time.sleep(0.3)
         if not self.processing: raise Exception("Cancelled by user")
 
+    def _open_selected_video_url(self):
+        """Open the URL of the selected search result in the default browser."""
+        sel = self.results_listbox.curselection()
+        if not sel:
+            messagebox.showinfo("No Selection", "Select a video from the list first.")
+            return
+        idx = sel[0]
+        if idx >= len(self.current_search_results):
+            return
+        meta = self.current_search_results[idx]
+        url = meta.get("webpage_url") or meta.get("url", "")
+        if url:
+            webbrowser.open(url)
+            self._log(f"  🔗 Opened in browser: {url}")
+        else:
+            messagebox.showwarning("No URL", "No URL found for this result.")
+
     def _on_search(self):
         g = self.game_name.get().strip()
         mx = self.max_videos.get()
@@ -1143,22 +1174,30 @@ class VideoAutomationApp:
             self._log(f"Found {len(cands)} results. Select from the list to process.")
             self.current_search_results = cands
             for i, c in enumerate(cands):
-                title = c.get("title", "Unknown")[:50]
+                title = c.get("title", "Unknown")[:45]
                 platform = c.get("platform", "Unknown")
                 dur = c.get("duration", 0)
                 dur_str = f"[{dur}s]" if dur else ""
-                
+                video_url = c.get("webpage_url") or c.get("url", "")
+                short_url = video_url[:55] + "..." if len(video_url) > 55 else video_url
+
                 # Aspect ratio check
                 w = c.get("width")
                 h = c.get("height")
                 if w and h:
-                    ratio = "[9:16]" if w < h else "[16:9]"
+                    ratio = "9:16" if w < h else "16:9"
                 else:
-                    ratio = "[9:16]" if platform in ("TikTok", "Instagram Reels", "YouTube Shorts", "Facebook Reels") else "[?]"
-                    
-                display_text = f"[{platform}] {ratio} {title} {dur_str}"
+                    ratio = "9:16" if platform in ("TikTok", "Instagram Reels", "YouTube Shorts", "Facebook Reels") else "?:?"
+
+                display_text = f"[{ratio}] {dur_str} {title}  |  {short_url}"
                 self.results_listbox.insert("end", display_text)
-                
+                # Colour long-form differently for easy spotting
+                if ratio == "16:9":
+                    self.results_listbox.itemconfig(i, fg=ORANGE)
+                else:
+                    self.results_listbox.itemconfig(i, fg=GREEN)
+
+
             if cands:
                 self.results_listbox.selection_set(0)
                 
@@ -1254,19 +1293,6 @@ class VideoAutomationApp:
                 if cloud_mode:
                     self.root.after(0, self._log, "  Uploading to Cloud Rendering...")
                     import requests as req
-                    from requests.adapters import HTTPAdapter
-                    from urllib3.util.retry import Retry
-
-                    # Build a session with retry on connection errors
-                    session = req.Session()
-                    retry = Retry(
-                        total=3,
-                        backoff_factor=2,
-                        status_forcelist=[502, 503, 504],
-                        allowed_methods=["POST"]
-                    )
-                    session.mount("https://", HTTPAdapter(max_retries=retry))
-                    session.mount("http://",  HTTPAdapter(max_retries=retry))
 
                     data = {
                         'game': game, 'url': url,
@@ -1286,10 +1312,11 @@ class VideoAutomationApp:
                         'hook_end': str(hook_end)
                     }
 
-                    # Open files safely — always closed in finally block
+                    # Open files safely
                     fh_video = open(str(raw), 'rb')
                     fh_ss = open(ss, 'rb') if ss and os.path.exists(ss) else None
                     fh_rec = open(recording_path, 'rb') if reward_mode and os.path.exists(recording_path) else None
+                    
                     try:
                         files = {'video': (raw.name, fh_video, 'video/mp4')}
                         if fh_ss:
@@ -1297,18 +1324,21 @@ class VideoAutomationApp:
                         if fh_rec:
                             files['manual_recording'] = (Path(recording_path).name, fh_rec, 'video/mp4')
 
-                        # Separate connect timeout (30s) and read/render timeout (3600s = 1hr)
-                        resp = session.post(
+                        # Use a single large timeout for the whole operation (connect + write + read)
+                        # This is more robust for large uploads on some Windows Python versions
+                        resp = req.post(
                             f"{cloud_url}/api/cloud_process",
                             data=data,
                             files=files,
-                            timeout=(30, 3600)
+                            timeout=3600  # 1 hour total timeout
                         )
+                    except req.exceptions.ConnectionError as ce:
+                        self.root.after(0, self._log, f"  ❌ Upload Failed (Connection Aborted). Your video might be too large for your internet upload speed.")
+                        raise ce
                     finally:
                         fh_video.close()
                         if fh_ss: fh_ss.close()
                         if fh_rec: fh_rec.close()
-                        session.close()
 
                     if resp.ok:
                         try:
@@ -1328,6 +1358,7 @@ class VideoAutomationApp:
                         rendered += 1
                     else:
                         self.root.after(0, self._log, f"  ✗ Cloud Error ({resp.status_code}): {resp.text[:300]}")
+
 
                 else:
                     if reward_mode:
