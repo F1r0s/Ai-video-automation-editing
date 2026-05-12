@@ -1024,6 +1024,10 @@ Rules:
             vo_path.unlink(missing_ok=True)
             if vo_path_reward.exists():
                 vo_path_reward.unlink(missing_ok=True)
+        except Exception:
+            pass
+        final_video.close()
+
         _progress(100, "Reward-First video done!")
         return out_path
 
