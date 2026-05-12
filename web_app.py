@@ -304,6 +304,9 @@ def cloud_process():
     link_color = request.form.get('landing_link_color', '#64dcff')
     link_font = request.form.get('link_font', 'Montserrat-Bold')
     mode = request.form.get('mode', 'legacy')
+    custom_script = request.form.get('custom_script', '').strip()
+    hook_start = int(request.form.get('hook_start', 0))
+    hook_end = int(request.form.get('hook_end', 10))
     
     if 'video' not in request.files:
         return jsonify({"error": "No video file provided"}), 400
@@ -354,6 +357,8 @@ def cloud_process():
                 landing_link_color=link_color,
                 link_font_name=link_font,
                 progress_callback=lambda p, m: log.info(f"Cloud Reward [{p}%]: {m}"),
+                custom_script=custom_script,
+                hook_duration=float(hook_end - hook_start) if hook_end > hook_start else 10.0,
             )
         else:
             log.info(f"Cloud: Legacy mode for {game}")
