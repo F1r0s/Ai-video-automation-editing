@@ -600,7 +600,8 @@ class VideoAutomationApp:
         self.landing_url = tk.StringVar()
         self.landing_link_color = tk.StringVar(value="#64dcff")
         self.manual_recording_path = tk.StringVar()
-        self.max_videos = tk.IntVar(value=3)
+        self.max_videos = tk.IntVar(value=5)
+        self.ratio_filter = tk.StringVar(value="Both")
         self.render_local = tk.BooleanVar(value=True)
         self.render_cloud = tk.BooleanVar(value=False)
         self.export_quality = tk.StringVar(value="1080")
@@ -730,9 +731,16 @@ class VideoAutomationApp:
         rf_hdr = tk.Frame(self.results_frame, bg=BG_CARD)
         rf_hdr.pack(fill="x", padx=10, pady=4)
         tk.Label(rf_hdr, text="Search Results (Select to process)", font=("Segoe UI", 9, "bold"), fg=FG_DIM, bg=BG_CARD).pack(side="left")
-        
+
         self.search_btn = tk.Button(rf_hdr, text="🔍 SEARCH", font=("Segoe UI", 9, "bold"), fg="#fff", bg=ACCENT, relief="flat", padx=8, pady=2, command=self._on_search)
         self.search_btn.pack(side="right")
+
+        # Ratio filter dropdown
+        ratio_row = tk.Frame(self.results_frame, bg=BG_CARD)
+        ratio_row.pack(fill="x", padx=10, pady=(0, 2))
+        tk.Label(ratio_row, text="Format Filter:", font=("Segoe UI", 8, "bold"), fg=FG_DIM, bg=BG_CARD).pack(side="left")
+        tk.OptionMenu(ratio_row, self.ratio_filter, "Both", "9:16 only", "16:9 only").pack(side="left", padx=6)
+        tk.Label(ratio_row, text="(applies on next search)", font=("Segoe UI", 7), fg=FG_DIM, bg=BG_CARD).pack(side="left")
         
         trim_frame = tk.Frame(self.results_frame, bg=BG_CARD)
         trim_frame.pack(fill="x", padx=10, pady=(0, 4))
@@ -897,7 +905,7 @@ class VideoAutomationApp:
         tk.Label(h,text=f" {n} ",font=("Segoe UI",9,"bold"),fg="#fff",bg=ACCENT).pack(side="left",padx=(0,6))
         tk.Label(h,text=l,font=("Segoe UI",10,"bold"),fg=FG,bg=BG_CARD).pack(side="left")
         r=tk.Frame(i,bg=BG_CARD); r.pack(fill="x",pady=(4,0))
-        tk.Spinbox(r,from_=1,to=10,textvariable=v,width=4,font=("Segoe UI",12,"bold"), fg=ACCENT,bg=BG_INPUT,relief="flat",justify="center").pack(side="left")
+        tk.Spinbox(r,from_=1,to=30,textvariable=v,width=4,font=("Segoe UI",12,"bold"), fg=ACCENT,bg=BG_INPUT,relief="flat",justify="center").pack(side="left")
 
     def _pick_ss(self):
         p = filedialog.askopenfilename(title="Screenshot", filetypes=[("Images","*.png *.jpg *.jpeg *.webp *.bmp")])
@@ -1154,11 +1162,12 @@ class VideoAutomationApp:
         self.results_listbox.delete(0, tk.END)
         self.current_search_results = []
         self._sts("Searching...", ACCENT)
-        self._log(f"Searching for '{g}' across platforms...")
-        
-        threading.Thread(target=self._search_thread, args=(g, mx), daemon=True).start()
+        ratio_f = self.ratio_filter.get()
+        self._log(f"Searching for '{g}' | Filter: {ratio_f} | Max: {mx}")
 
-    def _search_thread(self, game, mx):
+        threading.Thread(target=self._search_thread, args=(g, mx, ratio_f), daemon=True).start()
+
+    def _search_thread(self, game, mx, ratio_f="Both"):
         from scraper import VideoScraper
         from config import Config
         cfg = Config()
@@ -1173,7 +1182,38 @@ class VideoAutomationApp:
                 return
             
             self._sts(f"Found {len(cands)} results.", GREEN)
-            self._log(f"Found {len(cands)} results. Select from the list to process.")
+
+            # ── Apply ratio filter ──────────────────────────────────────────
+            def _detect_ratio(c):
+                w, h = c.get("width"), c.get("height")
+                if w and h and w > 0 and h > 0:
+                    return "9:16" if h > w else "16:9"
+                url_lower = (c.get("webpage_url") or c.get("url", "")).lower()
+                t_lower = c.get("title", "").lower()
+                plat = c.get("platform", "")
+                is_short = (
+                    "/shorts/" in url_lower
+                    or "tiktok.com" in url_lower
+                    or "instagram.com/reel" in url_lower
+                    or "facebook.com/reel" in url_lower
+                    or plat in ("TikTok", "Instagram Reels", "Facebook Reels")
+                    or "short" in t_lower
+                    or "#shorts" in t_lower
+                )
+                return "9:16" if is_short else "16:9"
+
+            if ratio_f == "9:16 only":
+                cands = [c for c in cands if _detect_ratio(c) == "9:16"]
+            elif ratio_f == "16:9 only":
+                cands = [c for c in cands if _detect_ratio(c) == "16:9"]
+            # "Both" = no filter
+
+            if not cands:
+                self._sts(f"No results matched '{ratio_f}' filter.", ORANGE)
+                self._log(f"No videos matched the '{ratio_f}' filter. Try changing Format Filter or search again.")
+                return
+
+            self._log(f"Showing {len(cands)} result(s) after '{ratio_f}' filter.")
             self.current_search_results = cands
             for i, c in enumerate(cands):
                 title = c.get("title", "Unknown")[:45]
