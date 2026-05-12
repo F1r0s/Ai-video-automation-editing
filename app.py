@@ -1349,35 +1349,56 @@ class VideoAutomationApp:
                         'hook_end': str(hook_end)
                     }
 
-                    # Open files safely
-                    fh_video = open(str(raw), 'rb')
-                    fh_ss = open(ss, 'rb') if ss and os.path.exists(ss) else None
-                    fh_rec = open(recording_path, 'rb') if reward_mode and os.path.exists(recording_path) else None
-                    
-                    try:
-                        files = {'video': (raw.name, fh_video, 'video/mp4')}
-                        if fh_ss:
-                            files['screenshot'] = (Path(ss).name, fh_ss, 'image/png')
-                        if fh_rec:
-                            files['manual_recording'] = (Path(recording_path).name, fh_rec, 'video/mp4')
+                    # ── Retry loop: 3 attempts with backoff ──
+                    max_retries = 3
+                    retry_delays = [5, 15, 30]  # seconds between retries
+                    resp = None
+                    last_error = None
 
-                        # Use a single large timeout for the whole operation (connect + write + read)
-                        # This is more robust for large uploads on some Windows Python versions
-                        resp = req.post(
-                            f"{cloud_url}/api/cloud_process",
-                            data=data,
-                            files=files,
-                            timeout=3600  # 1 hour total timeout
-                        )
-                    except req.exceptions.ConnectionError as ce:
-                        self.root.after(0, self._log, f"  ❌ Upload Failed (Connection Aborted). Your video might be too large for your internet upload speed.")
-                        raise ce
-                    finally:
-                        fh_video.close()
-                        if fh_ss: fh_ss.close()
-                        if fh_rec: fh_rec.close()
+                    for attempt in range(1, max_retries + 1):
+                        # Open fresh file handles for each attempt
+                        fh_video = open(str(raw), 'rb')
+                        fh_ss = open(ss, 'rb') if ss and os.path.exists(ss) else None
+                        fh_rec = open(recording_path, 'rb') if reward_mode and os.path.exists(recording_path) else None
 
-                    if resp.ok:
+                        try:
+                            files = {'video': (raw.name, fh_video, 'video/mp4')}
+                            if fh_ss:
+                                files['screenshot'] = (Path(ss).name, fh_ss, 'image/png')
+                            if fh_rec:
+                                files['manual_recording'] = (Path(recording_path).name, fh_rec, 'video/mp4')
+
+                            self.root.after(0, self._log, f"  ⬆ Upload attempt {attempt}/{max_retries}...")
+                            resp = req.post(
+                                f"{cloud_url}/api/cloud_process",
+                                data=data,
+                                files=files,
+                                timeout=3600  # 1 hour total timeout
+                            )
+                            last_error = None
+                            break  # Success — exit retry loop
+
+                        except (req.exceptions.ConnectionError, req.exceptions.Timeout) as ce:
+                            last_error = ce
+                            if attempt < max_retries:
+                                wait = retry_delays[attempt - 1]
+                                self.root.after(0, self._log,
+                                    f"  ⚠ Attempt {attempt} failed ({type(ce).__name__}). "
+                                    f"Retrying in {wait}s... (server may be rebuilding)")
+                                time.sleep(wait)
+                            else:
+                                self.root.after(0, self._log,
+                                    f"  ❌ All {max_retries} upload attempts failed. "
+                                    f"Check your internet or wait for the HuggingFace Space to finish rebuilding.")
+                        finally:
+                            fh_video.close()
+                            if fh_ss: fh_ss.close()
+                            if fh_rec: fh_rec.close()
+
+                    if last_error:
+                        raise last_error
+
+                    if resp and resp.ok:
                         try:
                             payload = resp.json()
                         except Exception:
@@ -1393,8 +1414,9 @@ class VideoAutomationApp:
                         else:
                             self.root.after(0, self._log, "  ✓ Cloud Render Started! Check Telegram.")
                         rendered += 1
-                    else:
+                    elif resp:
                         self.root.after(0, self._log, f"  ✗ Cloud Error ({resp.status_code}): {resp.text[:300]}")
+
 
 
                 else:
