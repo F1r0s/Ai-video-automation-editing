@@ -616,6 +616,7 @@ class VideoAutomationApp:
         self.pause_event = threading.Event()
         self.pause_event.set()
         self._last_errors = []   # collect render error traces
+        self.source_mode = tk.StringVar(value="search")  # "search" or "url"
 
         self.editor = None
 
@@ -724,6 +725,50 @@ class VideoAutomationApp:
                    fg=FG, bg=BG_CARD, selectcolor=BG_INPUT, activebackground=BG_CARD,
                    activeforeground=FG).pack(anchor="w", padx=10)
         self.settings_panel.pack_forget()
+
+        # ── SOURCE MODE TOGGLE ────────────────────────────────────────────────
+        src_frame = tk.Frame(left, bg=BG_CARD, highlightthickness=1, highlightbackground=BG_INPUT)
+        src_frame.pack(fill="x", pady=3)
+        src_inner = tk.Frame(src_frame, bg=BG_CARD); src_inner.pack(fill="x", padx=10, pady=8)
+        tk.Label(src_inner, text="📥  Video Source Mode", font=("Segoe UI", 10, "bold"),
+                 fg=ACCENT, bg=BG_CARD).pack(anchor="w")
+        src_row = tk.Frame(src_inner, bg=BG_CARD); src_row.pack(fill="x", pady=(6,0))
+        tk.Radiobutton(src_row, text="🔍  Search by Game Name (Auto-find videos)",
+                       variable=self.source_mode, value="search",
+                       command=self._on_source_mode_change,
+                       fg=FG, bg=BG_CARD, selectcolor=BG_INPUT,
+                       activebackground=BG_CARD, activeforeground=FG).pack(anchor="w")
+        tk.Radiobutton(src_row, text="🔗  Paste Direct URL (YouTube / TikTok / Instagram)",
+                       variable=self.source_mode, value="url",
+                       command=self._on_source_mode_change,
+                       fg=FG, bg=BG_CARD, selectcolor=BG_INPUT,
+                       activebackground=BG_CARD, activeforeground=FG).pack(anchor="w")
+
+        # ── DIRECT URL PANEL (hidden by default, shown when url mode active) ──
+        self.direct_url_frame = tk.Frame(left, bg=BG_CARD, highlightthickness=1, highlightbackground=BG_INPUT)
+        du_inner = tk.Frame(self.direct_url_frame, bg=BG_CARD)
+        du_inner.pack(fill="x", padx=10, pady=8)
+        tk.Label(du_inner, text="🔗  Paste Video URL", font=("Segoe UI", 10, "bold"), fg=ACCENT, bg=BG_CARD).pack(anchor="w")
+        tk.Label(du_inner, text="Paste a YouTube, TikTok, or Instagram video link below.",
+                 font=("Segoe UI", 8), fg=FG_DIM, bg=BG_CARD).pack(anchor="w", pady=(2, 6))
+        self.direct_url_var = tk.StringVar()
+        du_entry_row = tk.Frame(du_inner, bg=BG_CARD); du_entry_row.pack(fill="x")
+        self.direct_url_entry = tk.Entry(du_entry_row, textvariable=self.direct_url_var,
+                                          font=("Segoe UI", 9), fg=FG, bg=BG_INPUT,
+                                          relief="flat", insertbackground=FG)
+        self.direct_url_entry.pack(side="left", fill="x", expand=True, ipady=6, padx=(0, 6))
+        tk.Button(du_entry_row, text="📋 Paste", font=("Segoe UI", 9, "bold"),
+                  fg="#fff", bg=BG_INPUT, relief="flat", padx=8,
+                  command=lambda: self.direct_url_var.set(self.root.clipboard_get())).pack(side="left")
+        # Trim range for direct URL
+        du_trim = tk.Frame(du_inner, bg=BG_CARD); du_trim.pack(fill="x", pady=(8, 0))
+        tk.Label(du_trim, text="Trim Hook from (s):", font=("Segoe UI", 8), fg=FG_DIM, bg=BG_CARD).pack(side="left")
+        tk.Spinbox(du_trim, from_=0, to=999, textvariable=self.hook_start, width=4,
+                   font=("Segoe UI", 8), bg=BG_INPUT, fg=FG).pack(side="left", padx=(4, 10))
+        tk.Label(du_trim, text="to (s):", font=("Segoe UI", 8), fg=FG_DIM, bg=BG_CARD).pack(side="left")
+        tk.Spinbox(du_trim, from_=1, to=999, textvariable=self.hook_end, width=4,
+                   font=("Segoe UI", 8), bg=BG_INPUT, fg=FG).pack(side="left", padx=(4, 0))
+        # Not shown until url mode is toggled
 
         # Results Listbox
         self.results_frame = tk.Frame(left, bg=BG_CARD, highlightthickness=1, highlightbackground=BG_INPUT)
@@ -1240,12 +1285,51 @@ class VideoAutomationApp:
                 
         self.root.after(0, update_ui)
 
+    def _on_source_mode_change(self):
+        """Show/hide the search panel or direct URL panel based on current mode."""
+        if self.source_mode.get() == "url":
+            self.results_frame.pack_forget()
+            self.direct_url_frame.pack(fill="x", pady=3, before=self.results_frame)
+        else:
+            self.direct_url_frame.pack_forget()
+            self.results_frame.pack(fill="x", pady=3)
+
     def _on_gen(self):
         g=self.game_name.get().strip(); ss=self.screenshot_path.get().strip()
         u=self.landing_url.get().strip(); c=self.max_videos.get()
         if not g: messagebox.showwarning("Missing","Enter game name."); return
         if not u: messagebox.showwarning("Missing","Enter CPA link."); return
         if self.processing: return
+
+        # ── DIRECT URL MODE ──
+        if self.source_mode.get() == "url":
+            direct_url = self.direct_url_var.get().strip()
+            if not direct_url:
+                messagebox.showwarning("Missing URL", "Please paste a video URL first.")
+                return
+            self.processing = True; self.pause_event.set()
+            self.gen_btn.configure(state="disabled", bg=FG_DIM)
+            self.pause_btn.configure(state="normal")
+            self.cancel_btn.configure(state="normal"); self._prg(0)
+            self.editor.set_locked(True)
+            self._set_output_url("No output yet")
+            self.editor.select(None)
+            ov = self.editor.get_overlays()
+            layout = self.editor.get_layout_data()
+            cloud_mode = self.render_cloud.get()
+            rec = self.manual_recording_path.get().strip()
+            custom_txt = self.custom_script.get().strip()
+            hs = self.hook_start.get()
+            he = self.hook_end.get()
+            self._log(f"Starting URL mode: {direct_url}")
+            threading.Thread(
+                target=self._run_direct_url,
+                args=(g, direct_url, ss, u, ov, layout, cloud_mode, rec, custom_txt, hs, he),
+                daemon=True
+            ).start()
+            return
+
+        # ── SEARCH MODE ──
         
         selected_indices = self.results_listbox.curselection()
         if not self.current_search_results:
@@ -1283,7 +1367,122 @@ class VideoAutomationApp:
         self._log(f"Starting: {g} {'(Reward-First)' if reward_mode else '(Legacy)'} {'(Cloud)' if cloud_mode else '(Local)'}")
         threading.Thread(target=self._run, args=(g,vids_to_process,ss,u,ov,layout,cloud_mode,rec,custom_txt,hs,he), daemon=True).start()
 
-    def _run(self, game, vids, ss, url, overlays, layout, cloud_mode, recording_path="", custom_script="", hook_start=0, hook_end=10):
+    def _run_direct_url(self, game, direct_url, ss, url, overlays, layout, cloud_mode, recording_path="", custom_script="", hook_start=0, hook_end=10):
+        """Download a single user-provided URL, trim the hook, then process it just like a scraped video."""
+        cfg = Config()
+        scraper = VideoScraper(config=cfg)
+        reward_mode = bool(recording_path and os.path.exists(recording_path))
+        export_quality = self.export_quality.get()
+        cloud_url = os.getenv("CLOUD_API_URL", "")
+
+        self.root.after(0, self._log, f"  ⬇ Downloading from URL: {direct_url[:60]}...")
+        self.root.after(0, self._prg, 10)
+
+        try:
+            # Reuse existing scraper download — just pass a fake meta dict with the url
+            meta = {"url": direct_url, "title": game, "duration": hook_end - hook_start or 10}
+            h_dur = max(1, hook_end - hook_start)
+            if reward_mode:
+                raw = scraper.download_hook(meta, start=hook_start, duration=h_dur)
+            else:
+                raw = scraper.download(meta)
+
+            if not raw or not Path(str(raw)).exists():
+                self.root.after(0, self._log, "  ❌ Download failed — check the URL and your internet.")
+                self._fin(0); return
+
+            self.root.after(0, self._log, f"  ✓ Download complete: {Path(str(raw)).name}")
+            self.root.after(0, self._prg, 30)
+
+            # Wrap into a fake one-item list so we can reuse _run's per-video loop
+            # by just calling the processing steps directly
+            processor = VideoProcessor(
+                elevenlabs_key=os.getenv("ELEVENLABS_API_KEY", ""),
+                elevenlabs_voice_id=os.getenv("ELEVENLABS_VOICE_ID", ""),
+                groq_key=os.getenv("GROQ_API_KEY", "")
+            ) if not cloud_mode else None
+
+            self.root.after(0, self._log, "  🎬 Processing video...")
+            self.root.after(0, self._prg, 40)
+
+            if cloud_mode:
+                # Upload to cloud — reuse the same cloud upload path from _run
+                self._run(game, [{"url": direct_url, "title": game}], ss, url, overlays, layout,
+                          cloud_mode, recording_path, custom_script, hook_start, hook_end,
+                          _override_raw=str(raw))
+                return
+
+            if reward_mode:
+                out_path = processor.process_reward_first(
+                    scraped_video_path=str(raw),
+                    manual_recording_path=recording_path,
+                    game_name=game,
+                    channel_screenshot=ss,
+                    landing_url=url,
+                    overlay_data=overlays,
+                    layout=layout,
+                    caption_color=self.caption_color.get(),
+                    caption_pos=self.caption_pos.get(),
+                    landing_link_color=self.landing_link_color.get(),
+                    link_font_name=self.link_font.get(),
+                    progress_callback=lambda p, msg: self.root.after(0, self._log, f"  [{p}%] {msg}"),
+                    custom_script=custom_script,
+                    hook_duration=h_dur
+                )
+            else:
+                out_path = processor.process(
+                    input_path=str(raw),
+                    game_name=game,
+                    channel_screenshot=ss,
+                    landing_url=url,
+                    progress_callback=lambda p, m: self.root.after(0, self._log, f"  [{p}%] {m}"),
+                    overlay_data=overlays,
+                    layout=layout,
+                    caption_color=self.caption_color.get(),
+                    caption_pos=self.caption_pos.get(),
+                    landing_link_color=self.landing_link_color.get(),
+                    link_font_name=self.link_font.get()
+                )
+
+            final_path = str(out_path)
+            if export_quality == "720":
+                final_path = self._make_720p_copy(final_path)
+
+            self.root.after(0, self._set_output_url, final_path)
+            self.root.after(0, self._log, f"  ✓ Render complete: {final_path}")
+            self.root.after(0, self._prg, 90)
+
+            # Send to Telegram
+            self.root.after(0, self._log, "  📱 Sending to Telegram...")
+            try:
+                import requests as req
+                tg_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+                tg_chat = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+                if tg_token and tg_chat:
+                    with open(final_path, "rb") as f:
+                        r = req.post(
+                            f"https://api.telegram.org/bot{tg_token}/sendVideo",
+                            data={"chat_id": tg_chat, "caption": f"✅ Direct URL Render: {game}"},
+                            files={"video": f}, timeout=600
+                        )
+                    if r.ok:
+                        self.root.after(0, self._log, "  ✅ Sent to Telegram!")
+                    else:
+                        self.root.after(0, self._log, f"  ❌ Telegram: {r.text[:200]}")
+                else:
+                    self.root.after(0, self._log, "  ⚠ Telegram not configured in .env")
+            except Exception as te:
+                self.root.after(0, self._log, f"  ❌ Telegram Upload Failed: {te}")
+
+            self._fin(1)
+
+        except Exception as e:
+            import traceback as _tb
+            self.root.after(0, self._log, f"  ❌ ERROR: {e}")
+            log.error(f"Direct URL render error:\n{_tb.format_exc()}")
+            self._fin(0)
+
+    def _run(self, game, vids, ss, url, overlays, layout, cloud_mode, recording_path="", custom_script="", hook_start=0, hook_end=10, _override_raw=None):
         cfg=Config()
         reward_mode = bool(recording_path and os.path.exists(recording_path))
         
@@ -1315,7 +1514,12 @@ class VideoAutomationApp:
             self.root.after(0,self._log,f"\n[2/3] Video {i}/{len(vids)}: {t}")
             
             # Download: hook for reward mode, full for legacy
-            if reward_mode:
+            # If _override_raw is set (direct URL mode), skip the download entirely
+            if _override_raw and Path(_override_raw).exists():
+                raw = Path(_override_raw)
+                self.root.after(0, self._log, f"  Using pre-downloaded file: {raw.name}")
+                downloaded += 1
+            elif reward_mode:
                 h_dur = hook_end - hook_start
                 if h_dur <= 0: h_dur = 10
                 self.root.after(0,self._log,f"  Downloading hook (from {hook_start}s to {hook_end}s)...")
@@ -1479,6 +1683,31 @@ class VideoAutomationApp:
                         final_path = self._make_720p_copy(final_path)
                     self.root.after(0, self._set_output_url, final_path)
                     self.root.after(0, self._log, f"  ✓ Local render complete. Video: {final_path}")
+                    
+                    # 🚀 SEND TO TELEGRAM AFTER LOCAL RENDER
+                    self.root.after(0, self._log, f"  📱 Uploading to Telegram...")
+                    try:
+                        import requests as req
+                        tg_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+                        tg_chat = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+                        
+                        if tg_token and tg_chat:
+                            with open(final_path, "rb") as f:
+                                r = req.post(
+                                    f"https://api.telegram.org/bot{tg_token}/sendVideo",
+                                    data={"chat_id": tg_chat, "caption": f"✅ Local Render Complete: {game}"},
+                                    files={"video": f},
+                                    timeout=600,
+                                )
+                            if r.ok:
+                                self.root.after(0, self._log, "  ✅ Sent to Telegram successfully!")
+                            else:
+                                self.root.after(0, self._log, f"  ❌ Telegram Error: {r.text[:200]}")
+                        else:
+                            self.root.after(0, self._log, "  ⚠ Telegram not configured in .env (TELEGRAM_BOT_TOKEN or CHAT_ID missing)")
+                    except Exception as e:
+                        self.root.after(0, self._log, f"  ❌ Telegram Upload Failed: {e}")
+
                     rendered += 1
             except Exception as e:
                 import traceback as _tb
@@ -1487,7 +1716,7 @@ class VideoAutomationApp:
                 self.root.after(0, self._log, f"  ❌ ERROR: {e}")
                 self.root.after(0, self._log, f"  (see error popup when finished)")
                 log.error(f"Render error:\n{full}")
-        # Cloud render sends to Telegram itself, so we just finish here.
+        # Local rendering now handles Telegram upload directly.
         self._fin(rendered, downloaded)
 
     def _fin(self, rendered, downloaded=0):
