@@ -1460,7 +1460,7 @@ class VideoAutomationApp:
                     link_font_name=self.link_font.get(),
                     progress_callback=lambda p, msg: self.root.after(0, self._log, f"  [{p}%] {msg}"),
                     custom_script=custom_script,
-                    hook_duration=h_dur
+                    hook_duration=max(1, hook_end - hook_start)
                 )
             else:
                 out_path = processor.process(
