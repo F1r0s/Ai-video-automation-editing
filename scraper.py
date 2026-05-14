@@ -322,9 +322,12 @@ class VideoScraper:
         try:
             subprocess.run(cmd, check=True, capture_output=True, timeout=120)
             log.info(f"  Hook download succeeded!")
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-            log.warning(f"  Hook download failed: {exc}")
-            return None
+        except subprocess.CalledProcessError as exc:
+            # yt-dlp often returns exit code 1 for minor warnings (like TikTok impersonation)
+            # even when the download succeeds. We log the warning but do NOT return None yet.
+            log.warning(f"  yt-dlp returned warning/error (exit code {exc.returncode}): {exc.stderr.decode('utf-8', errors='ignore')[:200]}")
+        except subprocess.TimeoutExpired as exc:
+            log.warning(f"  Hook download timed out: {exc}")
 
         # Find the downloaded file
         video_id = video_meta.get("id", "")
