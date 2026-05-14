@@ -768,7 +768,9 @@ class VideoAutomationApp:
         tk.Label(du_trim, text="to (s):", font=("Segoe UI", 8), fg=FG_DIM, bg=BG_CARD).pack(side="left")
         tk.Spinbox(du_trim, from_=1, to=999, textvariable=self.hook_end, width=4,
                    font=("Segoe UI", 8), bg=BG_INPUT, fg=FG).pack(side="left", padx=(4, 0))
-        # Not shown until url mode is toggled
+        # Pack once so Tkinter registers the widget, then immediately hide it
+        self.direct_url_frame.pack(fill="x", pady=3)
+        self.direct_url_frame.pack_forget()
 
         # Results Listbox
         self.results_frame = tk.Frame(left, bg=BG_CARD, highlightthickness=1, highlightbackground=BG_INPUT)
@@ -1289,7 +1291,7 @@ class VideoAutomationApp:
         """Show/hide the search panel or direct URL panel based on current mode."""
         if self.source_mode.get() == "url":
             self.results_frame.pack_forget()
-            self.direct_url_frame.pack(fill="x", pady=3, before=self.results_frame)
+            self.direct_url_frame.pack(fill="x", pady=3)
         else:
             self.direct_url_frame.pack_forget()
             self.results_frame.pack(fill="x", pady=3)
