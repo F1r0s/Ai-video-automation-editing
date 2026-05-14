@@ -1319,7 +1319,8 @@ class VideoAutomationApp:
     def _on_gen(self):
         g=self.game_name.get().strip(); ss=self.screenshot_path.get().strip()
         u=self.landing_url.get().strip(); c=self.max_videos.get()
-        if not g: messagebox.showwarning("Missing","Enter game name."); return
+        if not g and self.source_mode.get() != "url":
+            messagebox.showwarning("Missing","Enter game name."); return
         if not u: messagebox.showwarning("Missing","Enter CPA link."); return
         if self.processing: return
 
@@ -1329,6 +1330,13 @@ class VideoAutomationApp:
             if not direct_url:
                 messagebox.showwarning("Missing URL", "Please paste a video URL first.")
                 return
+            # Game name is optional in URL mode — fall back to domain name
+            if not g:
+                try:
+                    from urllib.parse import urlparse
+                    g = urlparse(direct_url).netloc.replace("www.", "").split(".")[0].title()
+                except Exception:
+                    g = "Video"
             self.processing = True; self.pause_event.set()
             self.gen_btn.configure(state="disabled", bg=FG_DIM)
             self.pause_btn.configure(state="normal")
@@ -1401,13 +1409,16 @@ class VideoAutomationApp:
         self.root.after(0, self._prg, 10)
 
         try:
-            # Reuse existing scraper download — just pass a fake meta dict with the url
-            meta = {"url": direct_url, "title": game, "duration": hook_end - hook_start or 10}
-            h_dur = max(1, hook_end - hook_start)
+            import hashlib
+            url_id = hashlib.md5(direct_url.encode()).hexdigest()[:8]  # short unique ID for file finding
+            # meta dict that scraper.download / download_hook expect
+            meta = {"url": direct_url, "webpage_url": direct_url, "title": game, "id": url_id}
             if reward_mode:
-                raw = scraper.download_hook(meta, start=hook_start, duration=h_dur)
+                # Use correct kwarg names: hook_start and hook_end (not start/duration)
+                raw = scraper.download_hook(meta, hook_start=hook_start, hook_end=hook_end)
             else:
-                raw = scraper.download(meta)
+                # For legacy mode, still trim to hook_end seconds max using download_hook
+                raw = scraper.download_hook(meta, hook_start=hook_start, hook_end=hook_end)
 
             if not raw or not Path(str(raw)).exists():
                 self.root.after(0, self._log, "  ❌ Download failed — check the URL and your internet.")
