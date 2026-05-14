@@ -609,8 +609,8 @@ class VideoAutomationApp:
         self.caption_pos = tk.DoubleVar(value=0.58)
         self.link_font = tk.StringVar(value="Montserrat-Bold")
         self.custom_script = tk.StringVar()
-        self.hook_start = tk.IntVar(value=0)
-        self.hook_end = tk.IntVar(value=10)
+        self.hook_start = tk.StringVar(value="0:00")  # M:SS format
+        self.hook_end = tk.StringVar(value="0:10")    # M:SS format
         
         self.processing = False
         self.pause_event = threading.Event()
@@ -760,14 +760,17 @@ class VideoAutomationApp:
         tk.Button(du_entry_row, text="📋 Paste", font=("Segoe UI", 9, "bold"),
                   fg="#fff", bg=BG_INPUT, relief="flat", padx=8,
                   command=lambda: self.direct_url_var.set(self.root.clipboard_get())).pack(side="left")
-        # Trim range for direct URL
+        # Trim range for direct URL — M:SS format
         du_trim = tk.Frame(du_inner, bg=BG_CARD); du_trim.pack(fill="x", pady=(8, 0))
-        tk.Label(du_trim, text="Trim Hook from (s):", font=("Segoe UI", 8), fg=FG_DIM, bg=BG_CARD).pack(side="left")
-        tk.Spinbox(du_trim, from_=0, to=999, textvariable=self.hook_start, width=4,
-                   font=("Segoe UI", 8), bg=BG_INPUT, fg=FG).pack(side="left", padx=(4, 10))
-        tk.Label(du_trim, text="to (s):", font=("Segoe UI", 8), fg=FG_DIM, bg=BG_CARD).pack(side="left")
-        tk.Spinbox(du_trim, from_=1, to=999, textvariable=self.hook_end, width=4,
-                   font=("Segoe UI", 8), bg=BG_INPUT, fg=FG).pack(side="left", padx=(4, 0))
+        tk.Label(du_trim, text="⏱ Hook from:", font=("Segoe UI", 8, "bold"), fg=FG_DIM, bg=BG_CARD).pack(side="left")
+        tk.Entry(du_trim, textvariable=self.hook_start, width=6,
+                 font=("Segoe UI", 9), fg=FG, bg=BG_INPUT, relief="flat",
+                 insertbackground=FG).pack(side="left", padx=(4, 8), ipady=3)
+        tk.Label(du_trim, text="to:", font=("Segoe UI", 8, "bold"), fg=FG_DIM, bg=BG_CARD).pack(side="left")
+        tk.Entry(du_trim, textvariable=self.hook_end, width=6,
+                 font=("Segoe UI", 9), fg=FG, bg=BG_INPUT, relief="flat",
+                 insertbackground=FG).pack(side="left", padx=(4, 0), ipady=3)
+        tk.Label(du_trim, text="(M:SS)", font=("Segoe UI", 7), fg=FG_DIM, bg=BG_CARD).pack(side="left", padx=(6, 0))
         # Pack once so Tkinter registers the widget, then immediately hide it
         self.direct_url_frame.pack(fill="x", pady=3)
         self.direct_url_frame.pack_forget()
@@ -791,10 +794,15 @@ class VideoAutomationApp:
         
         trim_frame = tk.Frame(self.results_frame, bg=BG_CARD)
         trim_frame.pack(fill="x", padx=10, pady=(0, 4))
-        tk.Label(trim_frame, text="Trim Hook from (s):", font=("Segoe UI", 8), fg=FG_DIM, bg=BG_CARD).pack(side="left")
-        tk.Spinbox(trim_frame, from_=0, to=999, textvariable=self.hook_start, width=4, font=("Segoe UI", 8), bg=BG_INPUT, fg=FG).pack(side="left", padx=(4, 10))
-        tk.Label(trim_frame, text="to (s):", font=("Segoe UI", 8), fg=FG_DIM, bg=BG_CARD).pack(side="left")
-        tk.Spinbox(trim_frame, from_=1, to=999, textvariable=self.hook_end, width=4, font=("Segoe UI", 8), bg=BG_INPUT, fg=FG).pack(side="left", padx=(4, 0))
+        tk.Label(trim_frame, text="⏱ Hook from:", font=("Segoe UI", 8, "bold"), fg=FG_DIM, bg=BG_CARD).pack(side="left")
+        tk.Entry(trim_frame, textvariable=self.hook_start, width=6,
+                 font=("Segoe UI", 9), fg=FG, bg=BG_INPUT, relief="flat",
+                 insertbackground=FG).pack(side="left", padx=(4, 8), ipady=3)
+        tk.Label(trim_frame, text="to:", font=("Segoe UI", 8, "bold"), fg=FG_DIM, bg=BG_CARD).pack(side="left")
+        tk.Entry(trim_frame, textvariable=self.hook_end, width=6,
+                 font=("Segoe UI", 9), fg=FG, bg=BG_INPUT, relief="flat",
+                 insertbackground=FG).pack(side="left", padx=(4, 8), ipady=3)
+        tk.Label(trim_frame, text="(M:SS)", font=("Segoe UI", 7), fg=FG_DIM, bg=BG_CARD).pack(side="left")
         
         list_frame = tk.Frame(self.results_frame, bg=BG_CARD)
         list_frame.pack(fill="both", expand=True, padx=10, pady=(0,4))
@@ -1287,6 +1295,18 @@ class VideoAutomationApp:
                 
         self.root.after(0, update_ui)
 
+    def _parse_mss(self, value: str, default: int = 0) -> int:
+        """Convert M:SS or plain seconds string to integer seconds.
+        Examples: '0:10' -> 10,  '1:30' -> 90,  '45' -> 45"""
+        try:
+            s = str(value).strip()
+            if ":" in s:
+                parts = s.split(":")
+                return int(parts[0]) * 60 + int(parts[1])
+            return int(float(s))
+        except Exception:
+            return default
+
     def _on_source_mode_change(self):
         """Show/hide the search panel or direct URL panel based on current mode."""
         if self.source_mode.get() == "url":
@@ -1321,9 +1341,9 @@ class VideoAutomationApp:
             cloud_mode = self.render_cloud.get()
             rec = self.manual_recording_path.get().strip()
             custom_txt = self.custom_script.get().strip()
-            hs = self.hook_start.get()
-            he = self.hook_end.get()
-            self._log(f"Starting URL mode: {direct_url}")
+            hs = self._parse_mss(self.hook_start.get(), 0)
+            he = self._parse_mss(self.hook_end.get(), 10)
+            self._log(f"Starting URL mode: {direct_url} | Hook {hs}s → {he}s")
             threading.Thread(
                 target=self._run_direct_url,
                 args=(g, direct_url, ss, u, ov, layout, cloud_mode, rec, custom_txt, hs, he),
@@ -1362,11 +1382,11 @@ class VideoAutomationApp:
         
         rec = self.manual_recording_path.get().strip()
         custom_txt = self.custom_script.get().strip()
-        hs = self.hook_start.get()
-        he = self.hook_end.get()
+        hs = self._parse_mss(self.hook_start.get(), 0)
+        he = self._parse_mss(self.hook_end.get(), 10)
         reward_mode = bool(rec and os.path.exists(rec))
         
-        self._log(f"Starting: {g} {'(Reward-First)' if reward_mode else '(Legacy)'} {'(Cloud)' if cloud_mode else '(Local)'}")
+        self._log(f"Starting: {g} {'(Reward-First)' if reward_mode else '(Legacy)'} {'(Cloud)' if cloud_mode else '(Local)'} | Hook {hs}s → {he}s")
         threading.Thread(target=self._run, args=(g,vids_to_process,ss,u,ov,layout,cloud_mode,rec,custom_txt,hs,he), daemon=True).start()
 
     def _run_direct_url(self, game, direct_url, ss, url, overlays, layout, cloud_mode, recording_path="", custom_script="", hook_start=0, hook_end=10):
