@@ -434,22 +434,20 @@ class VideoProcessor:
         BOTTOM_PADDING = 200
         USABLE_H = TARGET_H - BOTTOM_PADDING
 
-        # Pre-render screenshot: flush at TOP, scaled to fit within usable area
+        # Pre-render screenshot: exact WYSIWYG mapping from the GUI editor
         ss_img = None
         ss_px = ss_py = 0
         if has_screenshot:
             ss_img = Image.open(screenshot_path).convert("RGBA")
-            ss_img = ss_img.resize((int(ss_img.width * ss_zoom), int(ss_img.height * ss_zoom)), Image.LANCZOS)
-            scale = TARGET_W / ss_img.width
-            nw, nh = TARGET_W, int(ss_img.height * scale)
-            # Cap height to usable area (leave room for playback controls)
-            if nh > USABLE_H:
-                scale = USABLE_H / ss_img.height
-                nw, nh = int(ss_img.width * scale), int(ss_img.height * scale)
+            # In GUI, auto_scale fits width to canvas. ss_zoom is relative to that.
+            base_scale = TARGET_W / ss_img.width
+            final_scale = base_scale * ss_zoom
+            nw, nh = int(ss_img.width * final_scale), int(ss_img.height * final_scale)
             ss_img = ss_img.resize((nw, nh), Image.LANCZOS)
-            # Flush top: y starts at 0, center horizontally + user offset
-            ss_px = (TARGET_W - nw) // 2 + int(ss_ox * TARGET_W)
-            ss_py = 0 + int(ss_oy * TARGET_H)  # flush top, user can nudge with offset
+            
+            # GUI sends center offset (ss_ox, ss_oy). Paste coordinates are top-left.
+            ss_px = int((TARGET_W / 2) + (ss_ox * TARGET_W) - (nw / 2))
+            ss_py = int((TARGET_H / 2) + (ss_oy * TARGET_H) - (nh / 2))
 
         font_path = str(ASSETS_DIR / f"{link_font_name}.ttf")
         if not Path(font_path).exists():
@@ -457,7 +455,7 @@ class VideoProcessor:
 
         try:
             sticker_font = ImageFont.truetype(str(FONT_PATH), 144) if FONT_PATH.exists() else ImageFont.load_default()
-            base_fs = max(45, int(90 * link_scale))
+            base_fs = max(30, int(60 * link_scale))
             link_font = ImageFont.truetype(font_path, base_fs)
         except Exception:
             sticker_font = link_font = ImageFont.load_default()
@@ -567,10 +565,31 @@ class VideoProcessor:
                     link_fill = link_rgb + (255,)
                 except Exception:
                     link_fill = (100, 220, 255, 255)
-                bb = draw.textbbox((0, 0), landing_url, font=link_font)
+                    
+                # Dynamic font scaling if URL is too long
+                current_font = link_font
+                bb = draw.textbbox((0, 0), landing_url, font=current_font)
                 ltw = bb[2] - bb[0]
+                temp_fs = base_fs
+                while ltw > TARGET_W - 80 and temp_fs > 20:
+                    temp_fs -= 2
+                    try:
+                        current_font = ImageFont.truetype(font_path, temp_fs)
+                    except Exception:
+                        break
+                    bb = draw.textbbox((0, 0), landing_url, font=current_font)
+                    ltw = bb[2] - bb[0]
+
+                # Make sure the bounding box doesn't go off the left/right screen edges
+                left_edge = lx - ltw // 2
+                right_edge = lx + ltw // 2
+                if left_edge < 30:
+                    lx += (30 - left_edge)
+                elif right_edge > TARGET_W - 30:
+                    lx -= (right_edge - (TARGET_W - 30))
+
                 draw.rounded_rectangle([(lx-ltw//2-30, ly-36), (lx+ltw//2+30, ly+40)], radius=24, fill=(0,0,0,200))
-                draw.text((lx-ltw//2, ly-26), landing_url, fill=link_fill, font=link_font)
+                draw.text((lx-ltw//2, ly-26), landing_url, fill=link_fill, font=current_font)
 
             # Return RGBA for transparent overlay (stickers), RGB for screenshot overlay
             if has_screenshot:
