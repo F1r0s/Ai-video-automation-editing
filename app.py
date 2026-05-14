@@ -1349,11 +1349,27 @@ class VideoAutomationApp:
                         'hook_end': str(hook_end)
                     }
 
-                    # ── Retry loop: 3 attempts with backoff ──
-                    max_retries = 3
-                    retry_delays = [5, 15, 30]  # seconds between retries
+                    # ── Robust retry loop: 5 attempts with exponential backoff ──
+                    from urllib3.util.retry import Retry
+                    from requests.adapters import HTTPAdapter
+
+                    max_retries = 5
+                    retry_delays = [10, 20, 40, 60]  # seconds between retries
                     resp = None
                     last_error = None
+
+                    # Build a Session with low-level urllib3 retries as safety net
+                    session = req.Session()
+                    adapter = HTTPAdapter(
+                        max_retries=Retry(
+                            total=2,
+                            backoff_factor=1,
+                            status_forcelist=[502, 503, 504],
+                            allowed_methods=["POST"],
+                        )
+                    )
+                    session.mount("http://", adapter)
+                    session.mount("https://", adapter)
 
                     for attempt in range(1, max_retries + 1):
                         # Open fresh file handles for each attempt
@@ -1369,19 +1385,22 @@ class VideoAutomationApp:
                                 files['manual_recording'] = (Path(recording_path).name, fh_rec, 'video/mp4')
 
                             self.root.after(0, self._log, f"  ⬆ Upload attempt {attempt}/{max_retries}...")
-                            resp = req.post(
+                            resp = session.post(
                                 f"{cloud_url}/api/cloud_process",
                                 data=data,
                                 files=files,
-                                timeout=3600  # 1 hour total timeout
+                                timeout=(30, 3600),  # 30s connect, 1hr read
                             )
                             last_error = None
                             break  # Success — exit retry loop
 
-                        except (req.exceptions.ConnectionError, req.exceptions.Timeout) as ce:
+                        except (req.exceptions.ConnectionError,
+                                req.exceptions.Timeout,
+                                req.exceptions.ChunkedEncodingError,
+                                ConnectionResetError) as ce:
                             last_error = ce
                             if attempt < max_retries:
-                                wait = retry_delays[attempt - 1]
+                                wait = retry_delays[min(attempt - 1, len(retry_delays) - 1)]
                                 self.root.after(0, self._log,
                                     f"  ⚠ Attempt {attempt} failed ({type(ce).__name__}). "
                                     f"Retrying in {wait}s... (server may be rebuilding)")
@@ -1394,6 +1413,8 @@ class VideoAutomationApp:
                             fh_video.close()
                             if fh_ss: fh_ss.close()
                             if fh_rec: fh_rec.close()
+
+                    session.close()
 
                     if last_error:
                         raise last_error

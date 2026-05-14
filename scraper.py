@@ -70,21 +70,23 @@ class VideoScraper:
     # ── Platform-specific searches ─────────────────────────────────────────────
 
     def _search_youtube_shorts(self, query: str, max_results: int) -> list[dict]:
-        """Search YouTube specifically for Shorts (vertical, <60s)."""
-        # Adding "#shorts" and "shorts" to target short-form vertical content
+        """Search YouTube for both Shorts and general gameplay (16:9)."""
+        # We search both to satisfy the UI's 9:16/16:9/Both filter.
         searches = [
-            f"ytsearch{max_results}:{query} shorts",
+            f"ytsearch{max_results}:{query}", # General (16:9)
+            f"ytsearch{max_results}:{query} shorts", # Vertical (9:16)
             f"ytsearch{max_results}:{query} #shorts",
         ]
         all_items = []
         for search_url in searches:
             items = self._run_ytdlp_search(search_url, max_results)
             for item in items:
-                item["platform"] = "YouTube Shorts"
+                # Assign platform name for UI labeling
+                item["platform"] = "YouTube"
             all_items.extend(items)
-            if len(all_items) >= max_results:
+            if len(all_items) >= max_results * 2: # Get plenty so filter works well
                 break
-        log.info(f"  YouTube Shorts: found {len(all_items)} result(s)")
+        log.info(f"  YouTube: found {len(all_items)} result(s)")
         return all_items
 
     def _search_duckduckgo(self, d_query: str, max_results: int) -> list[dict]:

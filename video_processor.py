@@ -411,7 +411,9 @@ class VideoProcessor:
                                duration: float, overlay_data: list = None,
                                layout: dict = None, link_color: str = "#64dcff", link_font_name: str = "Montserrat-Bold") -> Optional[CompositeVideoClip]:
         """Animated channel overlay with user-positioned screenshot, link, and stickers.
-        Even without a screenshot, stickers will still be rendered on a transparent base."""
+        Even without a screenshot, stickers will still be rendered on a transparent base.
+        Screenshot is positioned flush at the top (no dead zone gap) and scaled to
+        leave ~200px at the bottom for playback controls."""
         has_screenshot = screenshot_path and Path(screenshot_path).exists()
         # Only bail out if there's NOTHING to render
         if not has_screenshot and not overlay_data:
@@ -428,7 +430,11 @@ class VideoProcessor:
         link_y = lay.get("link_y", 0.96)
         link_scale = lay.get("link_scale", 1.0)
 
-        # Pre-render screenshot at correct position (if provided)
+        # Bottom padding to keep content above playback controls
+        BOTTOM_PADDING = 200
+        USABLE_H = TARGET_H - BOTTOM_PADDING
+
+        # Pre-render screenshot: flush at TOP, scaled to fit within usable area
         ss_img = None
         ss_px = ss_py = 0
         if has_screenshot:
@@ -436,12 +442,14 @@ class VideoProcessor:
             ss_img = ss_img.resize((int(ss_img.width * ss_zoom), int(ss_img.height * ss_zoom)), Image.LANCZOS)
             scale = TARGET_W / ss_img.width
             nw, nh = TARGET_W, int(ss_img.height * scale)
-            if nh > TARGET_H - 120:
-                scale = (TARGET_H - 120) / ss_img.height
+            # Cap height to usable area (leave room for playback controls)
+            if nh > USABLE_H:
+                scale = USABLE_H / ss_img.height
                 nw, nh = int(ss_img.width * scale), int(ss_img.height * scale)
             ss_img = ss_img.resize((nw, nh), Image.LANCZOS)
+            # Flush top: y starts at 0, center horizontally + user offset
             ss_px = (TARGET_W - nw) // 2 + int(ss_ox * TARGET_W)
-            ss_py = (TARGET_H - nh) // 2 + int(ss_oy * TARGET_H)
+            ss_py = 0 + int(ss_oy * TARGET_H)  # flush top, user can nudge with offset
 
         font_path = str(ASSETS_DIR / f"{link_font_name}.ttf")
         if not Path(font_path).exists():
@@ -547,10 +555,12 @@ class VideoProcessor:
                     paste_y = cy - txt_img.height // 2
                     bg.paste(txt_img, (paste_x, paste_y), txt_img)
 
-            # Link text — only draw when screenshot is shown (CPA bar handles it otherwise)
-            if has_screenshot and landing_url:
+            # Link text — draw the CPA link on the channel overlay itself
+            # (no separate CPA bar needed — this is the single source of truth)
+            if landing_url:
                 lx = int(link_x * TARGET_W)
-                ly = int(link_y * TARGET_H)
+                # Clamp link Y to stay within usable area (above playback controls)
+                ly = min(int(link_y * TARGET_H), USABLE_H - 60)
                 try:
                     from PIL import ImageColor
                     link_rgb = ImageColor.getrgb(link_color)
@@ -783,64 +793,61 @@ class VideoProcessor:
         """Generate a bridging script for the reward-first workflow using Llama 3."""
         if not self.groq_client:
             return (
-                f"Wait. Look at this {game_name} gameplay. "
-                f"Want this on your device? I will show you exactly how. "
+                f"Look at this {game_name} gameplay. "
+                f"Want this on your device? Here is how. "
                 f"Go to the link on screen. Tap download. It is completely free. Go now!"
             )
 
         if custom_script:
-            prompt = f"""Write a short, punchy voiceover script for a viral TikTok video about '{game_name}'.
-The video has TWO parts:
-Part 1 (first {hook_duration} seconds): Shows insane, jaw-dropping gameplay footage as a hook.
-Part 2 (remaining time): Shows a step-by-step screen recording of how to download the mod.
+            prompt = f"""Write a short voiceover script for a YouTube Shorts video about '{game_name}'.
+The video structure is:
+- First {hook_duration} seconds: gameplay footage plays (NO talking during this part, the gameplay speaks for itself).
+- After {hook_duration}s: a screen recording shows how to download the mod.
 
-For Part 2, you MUST base it on the following instructions provided by the user:
+The user provided these walkthrough steps:
 "{custom_script}"
 
-Structure the script EXACTLY like this:
-1. HOOK (0-{hook_duration}s): Grab attention instantly.
-2. WALKTHROUGH: Explain the exact steps from the user's instructions clearly and quickly.
-3. CTA: "It works on all devices. Link is on screen right now. Download the mod and thank me later!"
+Your script must ONLY cover the walkthrough portion (after the gameplay hook). Structure it like:
+1. TRANSITION (1 sentence max): "Want this? Here is exactly how to get it."
+2. WALKTHROUGH: Follow the user's steps above. Be direct. "Go to the link on screen. Tap download. Install it."
+3. CTA (1 sentence): "Link is on screen. Download now, it is free."
 
 Rules:
-- Keep it concise. Direct speech only. No stage directions.
-- Use the phrase "link on screen" or "tap download" at least once.
-- Sound excited and urgent like a real TikToker.
-- IMPORTANT: Only talk about the game '{game_name}'. Do NOT mention any other games like 'MadOut 2' or 'MadOut2 BigCityOnline'. Focus exclusively on '{game_name}'.
-- The link is: {landing_url}"""
+- Do NOT write anything for the gameplay hook portion. The hook has no voiceover.
+- Keep it under 60 words total. Direct speech only. No stage directions, no labels, no numbering.
+- Sound natural and direct, not over-hyped.
+- IMPORTANT: Only talk about '{game_name}'. Do NOT mention any other game.
+- CRITICAL: The website link is EXACTLY "{landing_url}". You MUST spell it exactly as shown — letter by letter. Do NOT alter, rearrange, or misspell the URL. Say it exactly as "{landing_url}"."""
         else:
-            prompt = f"""Write a short, punchy voiceover script for a viral TikTok video about '{game_name}'.
+            prompt = f"""Write a short voiceover script for a YouTube Shorts video about '{game_name}'.
+The video structure is:
+- First {hook_duration} seconds: gameplay footage plays (NO talking, the gameplay is the hook).
+- After {hook_duration}s: a screen recording shows how to download the mod.
 
-The video has TWO parts:
-Part 1 (first {hook_duration} seconds): Shows insane, jaw-dropping gameplay footage as a hook.
-Part 2 (remaining time): Shows a step-by-step screen recording of how to download the mod.
-
-Structure the script EXACTLY like this:
-1. HOOK (0-{hook_duration}s): "Wait... you need to see THIS gameplay..." — grab attention instantly
-2. BRIDGE: "Want this on YOUR device? Let me show you exactly how..."
-3. WALKTHROUGH: "Step one, go to the link on screen... step two, tap download..."
-4. CTA: "It works on all devices. Link is on screen right now. Download the mod and thank me later!"
+Your script must ONLY cover the walkthrough portion (after the gameplay hook). Structure it like:
+1. TRANSITION (1 sentence): "Want this on your device? Let me show you."
+2. WALKTHROUGH: "Go to the link on screen. Tap download. Install and open it."
+3. CTA (1 sentence): "It works on all devices. Link is right there on screen."
 
 Rules:
-- Keep it under 80 words. Direct speech only. No stage directions.
-- Use the phrase "link on screen" or "tap download" at least once.
-- Sound excited and urgent like a real TikToker.
-- IMPORTANT: Only talk about the game '{game_name}'. Do NOT mention any other games like 'MadOut 2' or 'MadOut2 BigCityOnline'. Focus exclusively on '{game_name}'.
-- The link is: {landing_url}"""
+- Do NOT write anything for the gameplay hook. The hook has no voiceover.
+- Keep it under 50 words total. Direct speech only. No stage directions, no labels.
+- Get straight to the point. No fluff.
+- IMPORTANT: Only talk about '{game_name}'. Do NOT mention any other game.
+- CRITICAL: The website link is EXACTLY "{landing_url}". You MUST spell it exactly as shown — letter by letter. Do NOT alter, rearrange, or misspell the URL. Say it exactly as "{landing_url}"."""
 
         try:
             completion = self.groq_client.chat.completions.create(
                 model="llama-3.1-8b-instant",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.7,
-                max_tokens=200
+                max_tokens=150
             )
             return completion.choices[0].message.content.strip()
         except Exception as e:
             log.warning(f"Llama reward script generation failed: {e}")
             return (
-                f"Wait. Look at this {game_name} gameplay. "
-                f"Want this on your device? I will show you exactly how. "
+                f"Want this on your device? Here is how. "
                 f"Go to the link on screen. Tap download. It is completely free. Go now!"
             )
 
@@ -925,31 +932,42 @@ Rules:
 
         vo_clip = AudioFileClip(str(vo_path))
 
-        # Loop/trim voiceover to match combined video
-        if vo_clip.duration < total_duration:
-            repeats = math.ceil(total_duration / vo_clip.duration)
-            vo_clip = concatenate_audioclips([vo_clip] * repeats)
-        if vo_clip.duration > total_duration:
-            vo_clip = vo_clip.subclip(0, total_duration)
+        # Voiceover starts AFTER the hook (no talking during gameplay hook)
+        # Create silence for the hook portion, then the voiceover for the walkthrough
+        from moviepy.editor import AudioClip
+        import numpy as np
 
-        combined = combined.set_audio(vo_clip)
+        silence_duration = hook_duration
+        silence = AudioClip(lambda t: np.zeros((1, 2)), duration=silence_duration, fps=44100)
+
+        # Combine: silence during hook + voiceover during walkthrough
+        walkthrough_audio = concatenate_audioclips([silence, vo_clip])
+
+        # Trim to match combined video length
+        if walkthrough_audio.duration > total_duration:
+            walkthrough_audio = walkthrough_audio.subclip(0, total_duration)
+
+        combined = combined.set_audio(walkthrough_audio)
 
         # 6. Transcribe voiceover for subtitles
         _progress(55, "Transcribing voiceover for subtitles...")
         segments = []
         sub_clips = []   # always defined even if transcription fails
         try:
-            # Always transcribe the reward-specific audio
+            # Transcribe the reward-specific audio
             transcribe_path = vo_path_reward if vo_path_reward.exists() else vo_path
             segments = self._transcribe(transcribe_path)
             log.info(f"Got {len(segments)} subtitle segments from transcription")
-            # Show ALL subtitle segments — voiceover covers full video (hook + recording)
-            # Segments during hook (0-5s) are filtered by position so they still
-            # appear correctly timed over the full combined clip.
+
+            # OFFSET all subtitle timestamps by hook_duration so they align
+            # with the walkthrough portion (voiceover starts after the hook)
+            for seg in segments:
+                seg["start"] += hook_duration
+                seg["end"] += hook_duration
+
             sub_clips = self._make_subtitle_clips(segments, TARGET_W, TARGET_H, caption_color, caption_pos, link_font_name)
             if sub_clips:
-                log.info(f"Adding {len(sub_clips)} subtitle clips to video")
-                combined = CompositeVideoClip([combined] + sub_clips)
+                log.info(f"Adding {len(sub_clips)} subtitle clips (offset by {hook_duration}s for walkthrough)")
             else:
                 log.warning("No subtitle clips were generated — check font path and segment data")
         except Exception as e:
@@ -957,42 +975,62 @@ Rules:
             log.warning(f"Subtitle generation failed: {e}\n{traceback.format_exc()}")
             segments = []
 
-        # 7. Find trigger time for stickers (when AI says "link", "download", etc.)
-        _progress(65, "Calculating sticker trigger timing...")
-        sticker_start = self._find_trigger_time(segments, hook_duration)
-        log.info(f"Stickers will appear at t={sticker_start:.1f}s")
-
-        # Pre-calculate durations needed for layers
-        overlay_dur = total_duration - sticker_start
+        # 7. Screenshot + stickers appear in the LAST 5 seconds
+        # (after the walkthrough, as an end-screen call-to-action)
+        # NOTE: CPA bar is NOT added separately — the channel overlay already
+        # draws the link text, so adding a CPA bar would create duplicates.
+        _progress(65, "Preparing end-screen overlay timing...")
+        end_screen_dur = min(5.0, total_duration * 0.25)  # last 5s or 25% of video
+        end_screen_start = total_duration - end_screen_dur
+        log.info(f"End-screen (screenshot + stickers) at t={end_screen_start:.1f}s for {end_screen_dur:.1f}s")
 
         # 9. Assemble all layers into a SINGLE CompositeVideoClip (FLATTENED)
-        # This is much faster than nesting CompositeVideoClip calls.
         _progress(85, "Assembling video layers...")
         all_layers = [combined]  # Base: hook + recording + audio
 
+        # Subtitles — filter to STOP before the end-screen starts
+        # (no captions should bleed into the channel screenshot section)
         if sub_clips:
-            all_layers.extend(sub_clips)
+            filtered_subs = []
+            for sc in sub_clips:
+                # Each subtitle clip has .start and .duration
+                clip_end = sc.start + sc.duration
+                if clip_end <= end_screen_start:
+                    filtered_subs.append(sc)
+                elif sc.start < end_screen_start:
+                    # Trim subtitle to end exactly at end_screen_start
+                    trimmed_dur = end_screen_start - sc.start
+                    if trimmed_dur > 0.1:
+                        filtered_subs.append(sc.set_duration(trimmed_dur))
+                # else: subtitle starts during end-screen, skip entirely
+            log.info(f"Subtitles: {len(sub_clips)} total -> {len(filtered_subs)} after filtering (cut before t={end_screen_start:.1f}s)")
+            all_layers.extend(filtered_subs)
 
-        if overlay_dur > 0 and (overlay_data or channel_screenshot):
+        # Screenshot + stickers overlay — LAST 5 seconds only
+        # The channel overlay already includes the link text, so no separate CPA bar.
+        has_channel_overlay = False
+        if end_screen_dur > 0 and (overlay_data or channel_screenshot):
             try:
                 overlay = self._make_channel_overlay(
-                    channel_screenshot or "", landing_url, overlay_dur,
+                    channel_screenshot or "", landing_url, end_screen_dur,
                     overlay_data or [], layout or {}, link_color=landing_link_color, link_font_name=link_font_name
                 )
                 if overlay:
-                    overlay = overlay.set_start(sticker_start)
+                    overlay = overlay.set_start(end_screen_start)
                     all_layers.append(overlay)
+                    has_channel_overlay = True
             except Exception as e:
                 log.warning(f"Overlay failed: {e}")
 
-        try:
-            cpa_duration = total_duration - hook_duration
-            if cpa_duration > 0:
-                cpa_bar = self._make_cpa_bar(landing_url, cpa_duration, link_color=landing_link_color, game_name=game_name, link_font_name=link_font_name)
-                cpa_bar = cpa_bar.set_start(hook_duration)
-                all_layers.append(cpa_bar)
-        except Exception as e:
-            log.warning(f"CPA bar failed: {e}")
+        # CPA bar — ONLY if no channel overlay was rendered (to avoid duplicates)
+        if not has_channel_overlay:
+            try:
+                if end_screen_dur > 0:
+                    cpa_bar = self._make_cpa_bar(landing_url, end_screen_dur, link_color=landing_link_color, game_name=game_name, link_font_name=link_font_name)
+                    cpa_bar = cpa_bar.set_start(end_screen_start)
+                    all_layers.append(cpa_bar)
+            except Exception as e:
+                log.warning(f"CPA bar failed: {e}")
 
         # Final Flattened Composition
         final_video = CompositeVideoClip(all_layers, size=(TARGET_W, TARGET_H))
@@ -1110,20 +1148,10 @@ Rules:
         except Exception as e:
             log.warning(f"Subtitle generation failed: {e}")
 
-        # 6. CPA link bar (Shown only at the end with the channel screenshot)
-        _progress(70, "Adding CPA link bar to end screen...")
-        try:
-            cpa_start = max(0, clip.duration - 5)
-            cpa_duration = clip.duration - cpa_start
-            if cpa_duration > 0:
-                cpa_bar = self._make_cpa_bar(landing_url, cpa_duration, link_color=landing_link_color, game_name=game_name, link_font_name=link_font_name)
-                cpa_bar = cpa_bar.set_start(cpa_start)
-                clip = CompositeVideoClip([clip, cpa_bar])
-        except Exception as e:
-            log.warning(f"CPA bar failed: {e}")
-
-        # 7. Channel screenshot overlay (last 5 seconds, FULL SCREEN)
-        _progress(80, "Adding channel screenshot + your overlays...")
+        # 6 & 7. Channel screenshot overlay + link (last 5 seconds, FULL SCREEN)
+        # The channel overlay already draws the CPA link — no separate CPA bar needed.
+        _progress(70, "Adding channel screenshot + your overlays...")
+        has_channel_overlay = False
         try:
             overlay_dur = min(5, clip.duration)
             overlay = self._make_channel_overlay(
@@ -1133,8 +1161,22 @@ Rules:
             if overlay:
                 overlay = overlay.set_start(clip.duration - overlay_dur)
                 clip = CompositeVideoClip([clip, overlay])
+                has_channel_overlay = True
         except Exception as e:
             log.warning(f"Channel overlay failed: {e}")
+
+        # CPA bar fallback — only if no channel overlay was rendered
+        if not has_channel_overlay:
+            _progress(75, "Adding CPA link bar fallback...")
+            try:
+                cpa_start = max(0, clip.duration - 5)
+                cpa_duration = clip.duration - cpa_start
+                if cpa_duration > 0:
+                    cpa_bar = self._make_cpa_bar(landing_url, cpa_duration, link_color=landing_link_color, game_name=game_name, link_font_name=link_font_name)
+                    cpa_bar = cpa_bar.set_start(cpa_start)
+                    clip = CompositeVideoClip([clip, cpa_bar])
+            except Exception as e:
+                log.warning(f"CPA bar failed: {e}")
 
         # 8. Export
         _progress(90, "Rendering final video...")
