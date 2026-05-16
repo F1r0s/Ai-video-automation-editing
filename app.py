@@ -617,6 +617,9 @@ class VideoAutomationApp:
         self.pause_event.set()
         self._last_errors = []   # collect render error traces
         self.source_mode = tk.StringVar(value="search")  # "search" or "url"
+        self.sfx_enabled = tk.BooleanVar(value=True)
+        self.seo_packages = {}  # populated after render
+        self.seo_platform = tk.StringVar(value="youtube")
 
         self.editor = None
 
@@ -724,6 +727,11 @@ class VideoAutomationApp:
         tk.Radiobutton(self.settings_panel, text="720p", variable=self.export_quality, value="720",
                    fg=FG, bg=BG_CARD, selectcolor=BG_INPUT, activebackground=BG_CARD,
                    activeforeground=FG).pack(anchor="w", padx=10)
+        tk.Frame(self.settings_panel, bg=BG_INPUT, height=1).pack(fill="x", padx=10, pady=6)
+        tk.Checkbutton(self.settings_panel, text="🔊 Auto Sound Effects (swoosh, cash register)",
+                   variable=self.sfx_enabled,
+                   fg=FG, bg=BG_CARD, selectcolor=BG_INPUT, activebackground=BG_CARD,
+                   activeforeground=FG, font=("Segoe UI", 9)).pack(anchor="w", padx=10, pady=(0, 6))
         self.settings_panel.pack_forget()
 
         # ── SOURCE MODE TOGGLE ────────────────────────────────────────────────
@@ -892,6 +900,50 @@ class VideoAutomationApp:
         for w in (self.btn_export_1080, self.btn_export_720, self.btn_open_folder):
             w.pack_forget()
 
+        # ── SEO PANEL 1: VIDEO TITLE ─────────────────────────────────────────
+        seo_title_frame = tk.Frame(left, bg=BG_CARD, highlightthickness=1, highlightbackground="#6200ea")
+        seo_title_frame.pack(fill="x", pady=(8, 0))
+        seo_t_hdr = tk.Frame(seo_title_frame, bg=BG_CARD)
+        seo_t_hdr.pack(fill="x", padx=10, pady=(8, 4))
+        tk.Label(seo_t_hdr, text="📌 VIDEO TITLE", font=("Segoe UI", 10, "bold"), fg="#bb86fc", bg=BG_CARD).pack(side="left")
+        tk.OptionMenu(seo_t_hdr, self.seo_platform,
+                      "youtube", "tiktok", "instagram", "facebook", "x",
+                      command=lambda _: self._on_seo_platform_change()).pack(side="right", padx=(6, 0))
+        tk.Button(seo_t_hdr, text="📋 Copy", font=("Segoe UI", 8, "bold"), fg="#fff", bg="#6200ea",
+                  relief="flat", padx=6, command=self._copy_seo_title).pack(side="right")
+
+        self.seo_title_var = tk.StringVar(value="Generate a video to see AI-optimized title")
+        self.seo_title_entry = tk.Entry(seo_title_frame, textvariable=self.seo_title_var,
+                                         font=("Segoe UI", 9), fg=ACCENT, bg=BG_INPUT,
+                                         relief="flat", state="readonly", readonlybackground=BG_INPUT)
+        self.seo_title_entry.pack(fill="x", padx=10, pady=(0, 8), ipady=4)
+
+        # ── SEO PANEL 2: DESCRIPTION & TAGS & HASHTAGS ───────────────────────
+        seo_desc_frame = tk.Frame(left, bg=BG_CARD, highlightthickness=1, highlightbackground="#6200ea")
+        seo_desc_frame.pack(fill="x", pady=(4, 0))
+        seo_d_hdr = tk.Frame(seo_desc_frame, bg=BG_CARD)
+        seo_d_hdr.pack(fill="x", padx=10, pady=(8, 4))
+        tk.Label(seo_d_hdr, text="📝 DESCRIPTION & TAGS", font=("Segoe UI", 10, "bold"), fg="#bb86fc", bg=BG_CARD).pack(side="left")
+        tk.Button(seo_d_hdr, text="📋 Copy All", font=("Segoe UI", 8, "bold"), fg="#fff", bg="#6200ea",
+                  relief="flat", padx=6, command=self._copy_all_seo).pack(side="right")
+
+        self.seo_desc_box = tk.Text(seo_desc_frame, height=5, font=("Consolas", 8),
+                                    bg=BG_INPUT, fg=FG_DIM, relief="flat", wrap="word",
+                                    state="disabled", highlightthickness=0)
+        self.seo_desc_box.pack(fill="x", padx=10, pady=(0, 4))
+
+        self.seo_tags_var = tk.StringVar(value="")
+        tk.Label(seo_desc_frame, text="Tags:", font=("Segoe UI", 8, "bold"), fg=FG_DIM, bg=BG_CARD).pack(anchor="w", padx=10)
+        tk.Entry(seo_desc_frame, textvariable=self.seo_tags_var, font=("Segoe UI", 8),
+                 fg=ORANGE, bg=BG_INPUT, relief="flat", state="readonly",
+                 readonlybackground=BG_INPUT).pack(fill="x", padx=10, pady=(0, 4), ipady=2)
+
+        self.seo_hashtags_var = tk.StringVar(value="")
+        tk.Label(seo_desc_frame, text="Hashtags:", font=("Segoe UI", 8, "bold"), fg=FG_DIM, bg=BG_CARD).pack(anchor="w", padx=10)
+        tk.Entry(seo_desc_frame, textvariable=self.seo_hashtags_var, font=("Segoe UI", 8),
+                 fg=GREEN, bg=BG_INPUT, relief="flat", state="readonly",
+                 readonlybackground=BG_INPUT).pack(fill="x", padx=10, pady=(0, 8), ipady=2)
+
         # RIGHT PANEL
         right = tk.Frame(self.root, bg=BG)
         right.pack(side="right", fill="both", expand=True, padx=(10,24), pady=20)
@@ -1053,6 +1105,53 @@ class VideoAutomationApp:
         self.log_box.see("end"); self.log_box.configure(state="disabled")
     def _sts(self, m, c=FG_DIM): self.status_lbl.configure(text=m, fg=c)
     def _prg(self, v): self.pbar["value"] = v
+
+    # --- SEO Panel Helpers ---
+    def _generate_and_show_seo(self, game_name):
+        """Generate AI SEO packages and populate the UI panels."""
+        try:
+            from seo import SEOGenerator
+            gen = SEOGenerator(groq_key=os.getenv("GROQ_API_KEY", ""))
+            self.seo_packages = gen.generate(game_name)
+            self.root.after(0, self._populate_seo)
+            self.root.after(0, self._log, "  📌 AI SEO packages generated for all platforms!")
+        except Exception as e:
+            self.root.after(0, self._log, f"  ⚠ SEO generation failed: {e}")
+
+    def _populate_seo(self):
+        """Fill the SEO panels with data for the currently selected platform."""
+        platform = self.seo_platform.get()
+        pkg = self.seo_packages.get(platform)
+        if not pkg:
+            return
+        self.seo_title_var.set(pkg.title)
+        self.seo_desc_box.configure(state="normal")
+        self.seo_desc_box.delete("1.0", "end")
+        self.seo_desc_box.insert("1.0", pkg.description)
+        self.seo_desc_box.configure(state="disabled")
+        self.seo_tags_var.set(pkg.tags_csv())
+        self.seo_hashtags_var.set(pkg.hashtag_string())
+
+    def _on_seo_platform_change(self):
+        self._populate_seo()
+
+    def _copy_seo_title(self):
+        title = self.seo_title_var.get()
+        if title:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(title)
+            self._log("📋 Title copied to clipboard!")
+
+    def _copy_all_seo(self):
+        platform = self.seo_platform.get()
+        pkg = self.seo_packages.get(platform)
+        if not pkg:
+            self._log("⚠ No SEO data yet — generate a video first.")
+            return
+        full = f"{pkg.title}\n\n{pkg.description}\n\nTags: {pkg.tags_csv()}\n\n{pkg.hashtag_string()}"
+        self.root.clipboard_clear()
+        self.root.clipboard_append(full)
+        self._log(f"📋 Full SEO ({platform}) copied to clipboard!")
 
     def _set_output_url(self, url):
         self.output_url = url
@@ -1432,7 +1531,8 @@ class VideoAutomationApp:
             processor = VideoProcessor(
                 elevenlabs_key=os.getenv("ELEVENLABS_API_KEY", ""),
                 elevenlabs_voice_id=os.getenv("ELEVENLABS_VOICE_ID", ""),
-                groq_key=os.getenv("GROQ_API_KEY", "")
+                groq_key=os.getenv("GROQ_API_KEY", ""),
+                sfx_enabled=self.sfx_enabled.get()
             ) if not cloud_mode else None
 
             self.root.after(0, self._log, "  🎬 Processing video...")
@@ -1489,15 +1589,35 @@ class VideoAutomationApp:
             self.root.after(0, self._log, "  📱 Sending to Telegram...")
             try:
                 import requests as req
+                from dotenv import load_dotenv
+                load_dotenv(override=True)  # Hot-reload in case user just added token
                 tg_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
                 tg_chat = os.getenv("TELEGRAM_CHAT_ID", "").strip()
                 if tg_token and tg_chat:
+                    # Generate thumbnail
+                    thumb_path = final_path.replace(".mp4", "_thumb.jpg")
+                    try:
+                        from moviepy.editor import VideoFileClip
+                        with VideoFileClip(final_path) as clip:
+                            clip.save_frame(thumb_path, t=min(3.0, clip.duration / 2))
+                    except Exception:
+                        thumb_path = None
+
                     with open(final_path, "rb") as f:
+                        files = {"video": f}
+                        thumb_f = None
+                        if thumb_path and os.path.exists(thumb_path):
+                            thumb_f = open(thumb_path, "rb")
+                            files["thumb"] = thumb_f
+                        
                         r = req.post(
                             f"https://api.telegram.org/bot{tg_token}/sendVideo",
                             data={"chat_id": tg_chat, "caption": f"✅ Direct URL Render: {game}"},
-                            files={"video": f}, timeout=600
+                            files=files, timeout=600
                         )
+                        if thumb_f:
+                            thumb_f.close()
+                            
                     if r.ok:
                         self.root.after(0, self._log, "  ✅ Sent to Telegram!")
                     else:
@@ -1506,6 +1626,9 @@ class VideoAutomationApp:
                     self.root.after(0, self._log, "  ⚠ Telegram not configured in .env")
             except Exception as te:
                 self.root.after(0, self._log, f"  ❌ Telegram Upload Failed: {te}")
+
+            # Generate AI SEO
+            self._generate_and_show_seo(game)
 
             self._fin(1)
 
@@ -1535,7 +1658,8 @@ class VideoAutomationApp:
             processor = VideoProcessor(
                 elevenlabs_key=os.getenv("ELEVENLABS_API_KEY", ""),
                 elevenlabs_voice_id=os.getenv("ELEVENLABS_VOICE_ID", ""),
-                groq_key=os.getenv("GROQ_API_KEY", "")
+                groq_key=os.getenv("GROQ_API_KEY", ""),
+                sfx_enabled=self.sfx_enabled.get()
             )
 
         downloaded = 0
@@ -1583,14 +1707,15 @@ class VideoAutomationApp:
                         'mode': 'reward_first' if reward_mode else 'legacy',
                         'custom_script': custom_script,
                         'hook_start': str(hook_start),
-                        'hook_end': str(hook_end)
+                        'hook_end': str(hook_end),
+                        'sfx_enabled': str(self.sfx_enabled.get())
                     }
 
                     # ── Robust retry loop: 5 attempts with exponential backoff ──
                     from urllib3.util.retry import Retry
                     from requests.adapters import HTTPAdapter
 
-                    max_retries = 5
+                    max_retries = 1
                     retry_delays = [10, 20, 40, 60]  # seconds between retries
                     resp = None
                     last_error = None
@@ -1599,7 +1724,7 @@ class VideoAutomationApp:
                     session = req.Session()
                     adapter = HTTPAdapter(
                         max_retries=Retry(
-                            total=2,
+                            total=0,
                             backoff_factor=1,
                             status_forcelist=[502, 503, 504],
                             allowed_methods=["POST"],
@@ -1626,7 +1751,7 @@ class VideoAutomationApp:
                                 f"{cloud_url}/api/cloud_process",
                                 data=data,
                                 files=files,
-                                timeout=(30, 3600),  # 30s connect, 1hr read
+                                timeout=(300, 3600),  # 300s connect, 1hr read
                             )
                             last_error = None
                             break  # Success — exit retry loop
@@ -1721,17 +1846,37 @@ class VideoAutomationApp:
                     self.root.after(0, self._log, f"  📱 Uploading to Telegram...")
                     try:
                         import requests as req
+                        from dotenv import load_dotenv
+                        load_dotenv(override=True)  # Hot-reload
                         tg_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
                         tg_chat = os.getenv("TELEGRAM_CHAT_ID", "").strip()
                         
                         if tg_token and tg_chat:
+                            # Generate thumbnail
+                            thumb_path = final_path.replace(".mp4", "_thumb.jpg")
+                            try:
+                                from moviepy.editor import VideoFileClip
+                                with VideoFileClip(final_path) as clip:
+                                    clip.save_frame(thumb_path, t=min(3.0, clip.duration / 2))
+                            except Exception:
+                                thumb_path = None
+
                             with open(final_path, "rb") as f:
+                                files = {"video": f}
+                                thumb_f = None
+                                if thumb_path and os.path.exists(thumb_path):
+                                    thumb_f = open(thumb_path, "rb")
+                                    files["thumb"] = thumb_f
+                                
                                 r = req.post(
                                     f"https://api.telegram.org/bot{tg_token}/sendVideo",
                                     data={"chat_id": tg_chat, "caption": f"✅ Local Render Complete: {game}"},
-                                    files={"video": f},
+                                    files=files,
                                     timeout=600,
                                 )
+                                if thumb_f:
+                                    thumb_f.close()
+                                    
                             if r.ok:
                                 self.root.after(0, self._log, "  ✅ Sent to Telegram successfully!")
                             else:
@@ -1749,6 +1894,9 @@ class VideoAutomationApp:
                 self.root.after(0, self._log, f"  ❌ ERROR: {e}")
                 self.root.after(0, self._log, f"  (see error popup when finished)")
                 log.error(f"Render error:\n{full}")
+        # Generate AI SEO after rendering all videos
+        self._generate_and_show_seo(game)
+
         # Local rendering now handles Telegram upload directly.
         self._fin(rendered, downloaded)
 

@@ -89,7 +89,7 @@ class VideoEditor:
             "voice_settings": {"stability": 0.5, "similarity_boost": 0.8},
         }
         try:
-            resp = requests.post(url, json=payload, headers=headers, timeout=30)
+            resp = requests.post(url, json=payload, headers=headers, timeout=300)
             resp.raise_for_status()
             out_path.write_bytes(resp.content)
             log.info(f"  ElevenLabs TTS → {out_path}")

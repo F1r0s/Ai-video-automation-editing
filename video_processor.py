@@ -20,6 +20,8 @@ import os
 import textwrap
 import tempfile
 import math
+import wave
+import struct
 from pathlib import Path
 from typing import Optional, Callable
 
@@ -33,7 +35,7 @@ if not hasattr(Image, 'ANTIALIAS'):
 from moviepy.editor import (
     VideoFileClip, AudioFileClip, CompositeVideoClip,
     ImageClip, TextClip, ColorClip, concatenate_audioclips,
-    concatenate_videoclips,
+    concatenate_videoclips, CompositeAudioClip,
 )
 from moviepy.video.fx.all import crop
 
@@ -63,6 +65,9 @@ STICKER_ASSETS = {
     "cartoon": ASSETS_DIR / "Cartoon Look Sticker by Javi Brations.gif",
 }
 
+# Sound effects directory
+SFX_DIR = ASSETS_DIR / "sfx"
+
 
 def _resolve_rgb(color_value: str, fallback: tuple[int, int, int]) -> tuple[int, int, int]:
     try:
@@ -80,14 +85,17 @@ def _resolve_rgb(color_value: str, fallback: tuple[int, int, int]) -> tuple[int,
 class VideoProcessor:
     """Processes a single video into a CPA promo clip."""
 
-    def __init__(self, elevenlabs_key: str = "", elevenlabs_voice_id: str = "", groq_key: str = ""):
+    def __init__(self, elevenlabs_key: str = "", elevenlabs_voice_id: str = "", groq_key: str = "", sfx_enabled: bool = True):
         self.el_key      = elevenlabs_key
         self.el_voice_id = elevenlabs_voice_id or "pqHfZKP75CvOlQylNhV4"  # Adam (male)
         self.groq_key    = groq_key
         self.groq_client = Groq(api_key=groq_key) if groq_key else None
         self._whisper     = None
+        self.sfx_enabled  = sfx_enabled
         self.sticker_cache = {}  # Cache loaded sticker assets
         self._load_sticker_assets()
+        if sfx_enabled:
+            self._ensure_sfx_assets()
 
     def _load_sticker_assets(self):
         """Pre-load sticker assets from disk with transparency preserved."""
@@ -110,6 +118,116 @@ class VideoProcessor:
                     log.warning(f"Failed to load sticker {kind}: {e}")
             else:
                 log.warning(f"Sticker asset not found: {asset_path}")
+
+    # ── Sound Effects ──────────────────────────────────────────────────────────
+
+    def _ensure_sfx_assets(self):
+        """Generate simple SFX WAV files if they don't already exist."""
+        import numpy as np
+        SFX_DIR.mkdir(parents=True, exist_ok=True)
+
+        sfx_specs = [
+            ("swoosh.wav", self._gen_swoosh_wav),
+            ("cash_register.wav", self._gen_cash_register_wav),
+            ("notification.wav", self._gen_notification_wav),
+        ]
+        for name, gen_fn in sfx_specs:
+            path = SFX_DIR / name
+            if not path.exists():
+                try:
+                    gen_fn(path)
+                    log.info(f"Generated SFX: {path}")
+                except Exception as e:
+                    log.warning(f"Failed to generate SFX {name}: {e}")
+
+    @staticmethod
+    def _write_wav(path, samples, sample_rate=44100):
+        """Write a mono float32 numpy array to a 16-bit WAV file."""
+        import numpy as np
+        samples = np.clip(samples, -1.0, 1.0)
+        int_samples = (samples * 32767).astype(np.int16)
+        with wave.open(str(path), 'w') as f:
+            f.setnchannels(1)
+            f.setsampwidth(2)
+            f.setframerate(sample_rate)
+            f.writeframes(int_samples.tobytes())
+
+    @staticmethod
+    def _gen_swoosh_wav(path, sr=44100):
+        """Frequency-sweep swoosh sound."""
+        import numpy as np
+        dur = 0.4
+        t = np.linspace(0, dur, int(sr * dur))
+        freq = 3000 * np.exp(-6 * t)
+        envelope = np.exp(-5 * t)
+        tone = 0.35 * np.sin(2 * np.pi * freq * t) * envelope
+        noise = 0.12 * np.random.randn(len(t)) * envelope
+        VideoProcessor._write_wav(path, tone + noise, sr)
+
+    @staticmethod
+    def _gen_cash_register_wav(path, sr=44100):
+        """Quick ka-ching cash register sound."""
+        import numpy as np
+        dur = 0.6
+        t = np.linspace(0, dur, int(sr * dur))
+        bell1 = 0.3 * np.sin(2 * np.pi * 2200 * t) * np.exp(-8 * t)
+        bell2 = 0.25 * np.sin(2 * np.pi * 3300 * t) * np.exp(-6 * np.maximum(t - 0.1, 0))
+        click = 0.4 * np.random.randn(len(t)) * np.exp(-40 * t)
+        VideoProcessor._write_wav(path, bell1 + bell2 + click, sr)
+
+    @staticmethod
+    def _gen_notification_wav(path, sr=44100):
+        """Pleasant two-tone notification beep."""
+        import numpy as np
+        dur = 0.5
+        t = np.linspace(0, dur, int(sr * dur))
+        tone1 = 0.3 * np.sin(2 * np.pi * 880 * t) * np.exp(-4 * t)
+        t2 = np.maximum(t - 0.15, 0)
+        tone2 = 0.3 * np.sin(2 * np.pi * 1320 * t2) * np.exp(-4 * t2) * (t > 0.15).astype(float)
+        VideoProcessor._write_wav(path, tone1 + tone2, sr)
+
+    def _mix_sound_effects(self, segments: list, total_duration: float,
+                           end_screen_start: float = None, hook_duration: float = 0) -> list:
+        """Create SFX AudioFileClip list positioned at trigger timestamps."""
+        if not self.sfx_enabled:
+            return []
+
+        sfx_clips = []
+
+        # 1. Cash register when CPA keywords are mentioned in voiceover
+        trigger_time = self._find_trigger_time(segments, hook_duration)
+        cash_path = SFX_DIR / "cash_register.wav"
+        if cash_path.exists() and 0 < trigger_time < total_duration - 0.5:
+            try:
+                cash = AudioFileClip(str(cash_path)).volumex(0.5).set_start(trigger_time)
+                sfx_clips.append(cash)
+                log.info(f"SFX: cash_register at t={trigger_time:.1f}s")
+            except Exception as e:
+                log.warning(f"SFX cash_register failed: {e}")
+
+        # 2. Swoosh when end-screen / stickers appear
+        if end_screen_start and 0 < end_screen_start < total_duration:
+            swoosh_path = SFX_DIR / "swoosh.wav"
+            if swoosh_path.exists():
+                try:
+                    swoosh = AudioFileClip(str(swoosh_path)).volumex(0.45).set_start(end_screen_start)
+                    sfx_clips.append(swoosh)
+                    log.info(f"SFX: swoosh at t={end_screen_start:.1f}s")
+                except Exception as e:
+                    log.warning(f"SFX swoosh failed: {e}")
+
+            # 3. Notification pop right after the swoosh
+            notif_path = SFX_DIR / "notification.wav"
+            if notif_path.exists():
+                try:
+                    notif_t = end_screen_start + 0.3
+                    notif = AudioFileClip(str(notif_path)).volumex(0.4).set_start(notif_t)
+                    sfx_clips.append(notif)
+                    log.info(f"SFX: notification at t={notif_t:.1f}s")
+                except Exception as e:
+                    log.warning(f"SFX notification failed: {e}")
+
+        return sfx_clips
 
     def _sticker_frame(self, sticker: dict, t: float) -> Image.Image:
         frames = sticker.get("frames") or []
@@ -1054,6 +1172,18 @@ Rules:
         # Final Flattened Composition
         final_video = CompositeVideoClip(all_layers, size=(TARGET_W, TARGET_H))
 
+        # Mix in sound effects
+        if self.sfx_enabled:
+            try:
+                sfx_clips = self._mix_sound_effects(segments, total_duration, end_screen_start, hook_duration)
+                if sfx_clips and final_video.audio:
+                    final_video = final_video.set_audio(
+                        CompositeAudioClip([final_video.audio] + sfx_clips)
+                    )
+                    log.info(f"Mixed {len(sfx_clips)} SFX into reward-first audio")
+            except Exception as e:
+                log.warning(f"SFX mixing failed (non-fatal): {e}")
+
         # 10. Export
         _progress(90, "Rendering final Reward-First video...")
         stem = Path(scraped_video_path).stem.replace("hook_", "")
@@ -1197,7 +1327,25 @@ Rules:
             except Exception as e:
                 log.warning(f"CPA bar failed: {e}")
 
-        # 8. Export
+        # 8. Mix in sound effects
+        _progress(80, "Adding sound effects...")
+        end_screen_t = max(0, clip.duration - 5)
+        try:
+            segments_for_sfx = segments if 'segments' in dir() else []
+        except Exception:
+            segments_for_sfx = []
+        if self.sfx_enabled:
+            try:
+                sfx_clips = self._mix_sound_effects(segments_for_sfx, clip.duration, end_screen_t)
+                if sfx_clips and clip.audio:
+                    clip = clip.set_audio(
+                        CompositeAudioClip([clip.audio] + sfx_clips)
+                    )
+                    log.info(f"Mixed {len(sfx_clips)} SFX into legacy audio")
+            except Exception as e:
+                log.warning(f"SFX mixing failed (non-fatal): {e}")
+
+        # 9. Export
         _progress(90, "Rendering final video...")
         stem = Path(input_path).stem
         

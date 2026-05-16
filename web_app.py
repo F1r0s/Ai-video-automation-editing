@@ -75,13 +75,31 @@ def _send_videos_to_telegram(processed_files, caption_prefix="Promo ready"):
             log.info(f"Telegram: [{idx}/{len(processed_files)}] Sending {Path(fp).name} ({file_size_mb:.1f}MB)...")
             update_status(f"📱 [{idx}/{len(processed_files)}] Uploading to Telegram... ({file_size_mb:.1f}MB)")
             
+            # Generate thumbnail
+            thumb_path = fp.replace(".mp4", "_thumb.jpg")
+            try:
+                from moviepy.editor import VideoFileClip
+                with VideoFileClip(fp) as clip:
+                    clip.save_frame(thumb_path, t=min(3.0, clip.duration / 2))
+            except Exception:
+                thumb_path = None
+
             with open(fp, "rb") as f:
+                files = {"video": f}
+                thumb_f = None
+                if thumb_path and os.path.exists(thumb_path):
+                    thumb_f = open(thumb_path, "rb")
+                    files["thumb"] = thumb_f
+                
                 r = requests.post(
                     f"https://api.telegram.org/bot{tg_token}/sendVideo",
                     data={"chat_id": tg_chat, "caption": f"{caption_prefix}: {Path(fp).name}"},
-                    files={"video": f},
+                    files=files,
                     timeout=300,
                 )
+                
+                if thumb_f:
+                    thumb_f.close()
             tg_send_end = datetime.now()
             send_duration = (tg_send_end - tg_send_start).total_seconds()
             
@@ -200,11 +218,13 @@ def generate():
     scraper = VideoScraper(config=cfg)
     req_el_key = request.form.get('elevenlabs_key', '').strip()
     req_el_voice = request.form.get('elevenlabs_voice_id', '').strip()
+    req_sfx = request.form.get('sfx_enabled', 'True').lower() == 'true'
     
     processor = VideoProcessor(
         elevenlabs_key=req_el_key or os.getenv("ELEVENLABS_API_KEY", ""),
         elevenlabs_voice_id=req_el_voice or os.getenv("ELEVENLABS_VOICE_ID", ""),
-        groq_key=os.getenv("GROQ_API_KEY", "")
+        groq_key=os.getenv("GROQ_API_KEY", ""),
+        sfx_enabled=req_sfx
     )
 
     log.info(f"Starting web pipeline for: {game}")
@@ -334,11 +354,13 @@ def cloud_process():
     req_el_key = request.form.get('elevenlabs_key', '').strip()
     req_el_voice = request.form.get('elevenlabs_voice_id', '').strip()
     req_groq_key = request.form.get('groq_key', '').strip()
+    req_sfx = request.form.get('sfx_enabled', 'True').lower() == 'true'
     
     processor = VideoProcessor(
         elevenlabs_key=req_el_key or os.getenv("ELEVENLABS_API_KEY", ""),
         elevenlabs_voice_id=req_el_voice or os.getenv("ELEVENLABS_VOICE_ID", ""),
-        groq_key=req_groq_key or os.getenv("GROQ_API_KEY", "")
+        groq_key=req_groq_key or os.getenv("GROQ_API_KEY", ""),
+        sfx_enabled=req_sfx
     )
     
     try:
@@ -398,13 +420,15 @@ def cloud_process():
     })
 
 if __name__ == '__main__':
-    # Run as a Desktop App locally
+    # Run server
     import threading
     import os
+    import platform
     import time
 
     def run_server():
-        app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)
+        # Listen on 0.0.0.0 to allow connections from your local PC to Oracle Cloud
+        app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
         
     t = threading.Thread(target=run_server)
     t.daemon = True
@@ -413,11 +437,16 @@ if __name__ == '__main__':
     # Wait a moment for server to start
     time.sleep(1)
     
-    # Open as a desktop app using Edge or Chrome's app mode
-    log.info("Opening Desktop App Window...")
-    # Tries to open Edge in app mode (looks like a native windows app). Falls back to standard browser.
-    result = os.system('start msedge --app="http://127.0.0.1:5000" || start chrome --app="http://127.0.0.1:5000" || start http://127.0.0.1:5000')
+    # Only try to open a browser window if we are on Windows (local mode)
+    if platform.system() == "Windows":
+        log.info("Opening Desktop App Window...")
+        os.system('start msedge --app="http://127.0.0.1:5000" || start chrome --app="http://127.0.0.1:5000" || start http://127.0.0.1:5000')
+    else:
+        log.info("Server started on Cloud (Linux). Access via Public IP on port 5000.")
     
     # Keep main thread alive
     while True:
-        time.sleep(100)
+        try:
+            time.sleep(100)
+        except KeyboardInterrupt:
+            break
