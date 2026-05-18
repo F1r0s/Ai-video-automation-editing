@@ -1676,14 +1676,11 @@ class VideoAutomationApp:
                 raw = Path(_override_raw)
                 self.root.after(0, self._log, f"  Using pre-downloaded file: {raw.name}")
                 downloaded += 1
-            elif reward_mode:
+            else:
                 h_dur = hook_end - hook_start
                 if h_dur <= 0: h_dur = 10
-                self.root.after(0,self._log,f"  Downloading hook (from {hook_start}s to {hook_end}s)...")
+                self.root.after(0,self._log,f"  Downloading video segment (from {hook_start}s to {hook_end}s)...")
                 raw=scraper.download_hook(m, hook_start=hook_start, hook_end=hook_end)
-            else:
-                self.root.after(0,self._log,"  Downloading...")
-                raw=scraper.download(m)
             if not raw: self.root.after(0,self._log,"  Failed."); continue
             downloaded += 1
             self.root.after(0,self._log,f"  Got: {raw.name}"); self._wait()
