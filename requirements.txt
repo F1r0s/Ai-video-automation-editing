@@ -44,6 +44,7 @@ schedule>=1.2.1             # Pure-Python scheduler (optional, for cron-less env
 
 # -- Web App -----------------------------------------------------------------
 Flask>=3.0.0
+flask-cors>=4.0.0
 gunicorn>=21.0.0
 Werkzeug>=3.0.0
 duckduckgo-search>=6.0.0

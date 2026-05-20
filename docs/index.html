@@ -71,11 +71,59 @@
     .note { margin-top: 14px; padding: 14px 16px; border-left: 3px solid var(--warn); background: rgba(255, 201, 113, 0.08); border-radius: 14px; color: #f3d9aa; }
     .grid-2 { display: grid; gap: 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .footer { margin-top: 18px; color: var(--muted); font-size: 14px; }
+    .field-grid { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .field { display: grid; gap: 7px; }
+    .field.full { grid-column: 1 / -1; }
+    label { font-size: 13px; letter-spacing: 0.02em; color: #d8e4ff; }
+    input, select, textarea, button {
+      font: inherit;
+      color: var(--text);
+    }
+    input, select, textarea {
+      width: 100%;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.05);
+      padding: 12px 14px;
+      outline: none;
+    }
+    textarea { min-height: 104px; resize: vertical; }
+    input:focus, select:focus, textarea:focus { border-color: rgba(100, 220, 255, 0.65); box-shadow: 0 0 0 3px rgba(100, 220, 255, 0.14); }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 14px; }
+    button {
+      border: 0;
+      border-radius: 999px;
+      padding: 12px 18px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      color: #08111f;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button.secondary {
+      background: rgba(255,255,255,0.07);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .muted-box {
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: rgba(255,255,255,0.04);
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .output {
+      margin-top: 14px;
+      display: grid;
+      gap: 10px;
+      font-size: 14px;
+    }
+    .output code { word-break: break-all; }
 
     @media (max-width: 860px) {
       body { padding: 18px 14px 32px; }
       .hero { padding: 24px; border-radius: 22px; }
-      .layout, .grid-2 { grid-template-columns: 1fr; }
+      .layout, .grid-2, .field-grid { grid-template-columns: 1fr; }
       h1 { max-width: none; }
     }
   </style>
@@ -119,18 +167,81 @@
     </section>
 
     <section class="card" style="margin-top:18px;">
-      <h2>Next implementation slice</h2>
-      <div class="grid-2">
-        <div>
-          <p><strong>Client UI:</strong> add a form for the friend’s local test path and a separate render button that points to Oracle Cloud.</p>
+      <h2>Render control panel</h2>
+      <p>Point this form at your Oracle Cloud Flask URL, then use it to check status or start a render job. Scraping should still happen on the user’s own device if you need their IP.</p>
+
+      <div class="field-grid">
+        <div class="field full">
+          <label for="backendUrl">Oracle backend URL</label>
+          <input id="backendUrl" type="url" placeholder="https://your-oracle-host:5000">
         </div>
-        <div>
-          <p><strong>Backend hook:</strong> keep the render API on Oracle and expose only the minimum endpoints needed by the Pages UI.</p>
+        <div class="field">
+          <label for="game">Game name</label>
+          <input id="game" type="text" placeholder="One State RP">
         </div>
+        <div class="field">
+          <label for="url">Landing URL</label>
+          <input id="url" type="url" placeholder="https://example.com">
+        </div>
+        <div class="field">
+          <label for="max">Max videos</label>
+          <input id="max" type="number" min="1" max="20" value="3">
+        </div>
+        <div class="field">
+          <label for="caption_color">Caption color</label>
+          <input id="caption_color" type="text" value="yellow">
+        </div>
+        <div class="field">
+          <label for="caption_pos">Caption position</label>
+          <input id="caption_pos" type="number" step="0.01" min="0" max="1" value="0.58">
+        </div>
+        <div class="field">
+          <label for="landing_link_color">Landing link color</label>
+          <input id="landing_link_color" type="text" value="#64dcff">
+        </div>
+        <div class="field">
+          <label for="link_font">Link font</label>
+          <input id="link_font" type="text" value="Montserrat-Bold">
+        </div>
+        <div class="field">
+          <label for="elevenlabs_key">ElevenLabs API key</label>
+          <input id="elevenlabs_key" type="password" placeholder="Optional for local testing">
+        </div>
+        <div class="field">
+          <label for="elevenlabs_voice_id">Voice ID</label>
+          <input id="elevenlabs_voice_id" type="text" placeholder="pqHfZKP75CvOlQylNhV4">
+        </div>
+        <div class="field full">
+          <label for="screenshot">Screenshot file</label>
+          <input id="screenshot" type="file" accept="image/*" required>
+        </div>
+        <div class="field full">
+          <label for="overlays">Overlays JSON</label>
+          <textarea id="overlays">[]</textarea>
+        </div>
+        <div class="field full">
+          <label for="layout">Layout JSON</label>
+          <textarea id="layout">{}</textarea>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="saveSettings" type="button" class="secondary">Save settings</button>
+        <button id="checkStatus" type="button" class="secondary">Check status</button>
+        <button id="generate" type="button">Send render job</button>
+      </div>
+
+      <div class="muted-box" id="helpText">The Oracle backend must allow this Pages origin. If status checks fail, verify the backend URL and CORS settings first.</div>
+
+      <div class="output" id="output">
+        <div><strong>Status:</strong> <span id="statusText">Idle</span></div>
+        <div><strong>Response:</strong> <code id="responseText">No request sent yet.</code></div>
+        <div><strong>Video URL:</strong> <code id="videoUrlText">-</code></div>
       </div>
     </section>
 
     <p class="footer">Published root should contain <code>index.html</code>, <code>404.html</code>, and <code>.nojekyll</code>.</p>
   </main>
+  <script src="./app.js"></script>
 </body>
 </html>

@@ -5,6 +5,7 @@ Hosts the HTML visual editor and processes videos.
 import os, json, logging
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 
@@ -27,6 +28,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 log = logging.getLogger("web_app")
 
 app = Flask(__name__)
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 app.config['UPLOAD_FOLDER'] = str(Path(__file__).parent / 'uploads')
 app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500 MB max for video uploads
 
