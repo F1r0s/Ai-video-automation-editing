@@ -105,3 +105,15 @@ This will open the visual **AI Video Automation Studio** window on your desktop.
 *   **"ffmpeg is not recognized"**: You forgot to install FFmpeg in Step 1, or you didn't restart your PC after installing it.
 *   **"No module named X"**: Make sure you installed the requirements via `pip install -r requirements.txt`.
 *   **Connection/Timeout Error**: If you have "Render in Cloud" checked, make sure your `.env` file contains the correct `CLOUD_API_URL` of your remote server. If you don't have a cloud server, just uncheck "Render in Cloud" and it will use your local PC!
+
+---
+
+## Local Scrape to Cloud Mode
+
+If you want scraping to use the device that runs the app, use the local bridge script. It downloads the source video on that machine, then sends the file to Oracle Cloud for rendering.
+
+```bash
+python local_scrape_to_cloud.py "One State RP" --landing-url "https://example.com" --backend-url "https://your-oracle-host:5000"
+```
+
+You can also set `CLOUD_API_URL` in your `.env` file and omit `--backend-url`.

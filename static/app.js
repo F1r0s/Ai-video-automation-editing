@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   app.js — AI Video Automation Studio  (fixed clean version)
+   app.js — AI Video Automation Studio  (Local App Version)
 ═══════════════════════════════════════════════════════════════ */
 
 /* ─── STATE ───────────────────────────────────────────────── */
@@ -58,7 +58,7 @@ function CanvasItem(kind, x, y, text, imgSrc) {
   }
 }
 
-/* ─── RENDER LOOP — single definition ────────────────────── */
+/* ─── RENDER LOOP ────────────────────────────────────────── */
 function renderLoop() {
   ctx.clearRect(0, 0, PV_W, PV_H);
 
@@ -498,14 +498,6 @@ function toggleSettings() {
   p.style.display = (p.style.display === 'none' || p.style.display === '') ? 'block' : 'none';
 }
 
-/* ─── RENDER MODE ───────────────────────────────────────── */
-function onRenderModeChange() {
-  var checked = document.querySelector('input[name="renderMode"]:checked');
-  state.renderMode = checked ? checked.value : 'local';
-  var row = document.getElementById('cloudUrlRow');
-  row.style.display = state.renderMode === 'cloud' ? 'block' : 'none';
-}
-
 /* ─── SOURCE MODE ───────────────────────────────────────── */
 function onSourceModeChange() {
   var checked = document.querySelector('input[name="sourceMode"]:checked');
@@ -539,25 +531,6 @@ function onSearch() {
   state.selectedResultIdx = -1;
 
   var api = getApiBase();
-  if (!api) {
-    /* demo results */
-    setTimeout(function() {
-      var fake = [
-        { title: game + ' MOD Unlimited Money 2025', url: 'https://youtube.com/shorts/demo1', ratio: '9:16', dur: 28 },
-        { title: game + ' HACK Gameplay Tutorial',   url: 'https://youtube.com/shorts/demo2', ratio: '9:16', dur: 22 },
-        { title: game + ' Best Settings Guide',      url: 'https://youtube.com/watch?v=demo3',ratio: '16:9', dur: 180 },
-        { title: game + ' Season 10 New Update',     url: 'https://youtube.com/shorts/demo4', ratio: '9:16', dur: 30 },
-        { title: game + ' Pro Tips 2025',            url: 'https://youtube.com/watch?v=demo5',ratio: '16:9', dur: 240 },
-      ];
-      state.searchResults = fake;
-      renderResultsList(fake);
-      btn.disabled    = false;
-      btn.textContent = '🔍 SEARCH';
-      setStatus('Found ' + fake.length + ' results (demo mode).', 'ok');
-    }, 1200);
-    return;
-  }
-
   var form = new FormData();
   form.append('game', game);
   form.append('max', state.maxVideos);
@@ -578,7 +551,7 @@ function onSearch() {
     .catch(function(err) {
       btn.disabled    = false;
       btn.textContent = '🔍 SEARCH';
-      list.innerHTML  = '<div class="results-placeholder" style="color:#ff4f4f">Cannot reach API — running in demo mode.</div>';
+      list.innerHTML  = '<div class="results-placeholder" style="color:#ff4f4f">Cannot reach API. Check connection.</div>';
       addLog('Search error: ' + err.message, 'err');
     });
 }
@@ -612,6 +585,7 @@ function renderResultsList(results) {
   selectResult(0, list.firstChild);
 }
 
+/* ...rest stays same... */
 function selectResult(idx, el) {
   state.selectedResultIdx = idx;
   document.querySelectorAll('.result-item').forEach(function(d) { d.classList.remove('selected'); });
@@ -634,8 +608,6 @@ function onGenerate() {
   if (!url)  { showToast('Enter a CPA landing page link!'); return; }
 
   var api = getApiBase();
-  if (!api) { runDemo(game, url); return; }
-
   if (!state.screenshotFile) { showToast('Choose a channel screenshot first!'); return; }
 
   startGen();
@@ -681,6 +653,7 @@ function onGenerate() {
         setStatus('Render complete!', 'ok');
         addLog('Done! ' + data.processed_count + ' video(s) processed.', 'ok');
         showOutput(api + (data.video_url_1080 || data.video_url));
+        if (data.seo) populateSeo(data.seo);
       } else {
         setStatus('Render failed.', 'err');
         addLog('Error: ' + data.error, 'err');
@@ -694,62 +667,8 @@ function onGenerate() {
     });
 }
 
-function runDemo(game, url) {
-  startGen();
-  var steps = [
-    [5,  'Starting pipeline for: ' + game],
-    [12, 'Searching for gameplay videos...'],
-    [22, 'Found 5 candidates.'],
-    [30, 'Downloading candidate 1/1...'],
-    [42, 'Download succeeded. Processing...'],
-    [52, 'Generating AI script via Llama 3...'],
-    [60, 'Generating ElevenLabs voiceover...'],
-    [68, 'Transcribing audio for subtitles...'],
-    [76, 'Compositing overlays & stickers...'],
-    [85, 'Encoding final 1080p video...'],
-    [92, 'Sending to Telegram...'],
-    [100,'Render complete! Video sent to Telegram.']
-  ];
-  var i = 0;
-  state.demoInterval = setInterval(function() {
-    if (state.paused || !state.processing) return;
-    if (i >= steps.length) {
-      clearInterval(state.demoInterval);
-      stopGen();
-      setStatus('Demo complete!', 'ok');
-      showDemoOutput(game, url);
-      buildDemoSeo(game);
-      return;
-    }
-    var step = steps[i++];
-    setProgress(step[0]);
-    setStatus(step[1], step[0] < 100 ? 'info' : 'ok');
-    addLog(step[1], step[0] === 100 ? 'ok' : '');
-  }, 700);
-}
-
-function showDemoOutput(game, url) {
-  var t = document.getElementById('outputThumb');
-  t.innerHTML = '<div style="text-align:center;padding:16px">'
-    + '<div style="font-size:48px;margin-bottom:8px">🎬</div>'
-    + '<div style="font-size:14px;font-weight:700;color:#00e676;margin-bottom:4px">' + game + '_promo.mp4</div>'
-    + '<div style="font-size:12px;color:#6a6a9a">1080p · 30s · 9:16 vertical</div>'
-    + '<div style="font-size:11px;color:#6a6a9a;margin-top:4px">Link: ' + url + '</div>'
-    + '<div style="font-size:11px;color:#ff9800;margin-top:8px">Demo mode — add Cloud API URL to render real videos</div>'
-    + '</div>';
-  state.lastRenderedUrl = 'demo';
-  document.getElementById('exportBtns').style.display = 'flex';
-}
-
-function buildDemoSeo(game) {
-  var g = game.replace(/\s+/g, '');
-  state.seoPackages = {
-    youtube:   { title: '🔥 ' + game + ' MOD 2025 – Unlimited Resources EXPOSED!', description: 'Get unlimited ' + game + ' resources for FREE. 100% working method.\n\n✅ Free\n✅ iOS & Android\n✅ No root required\n\n🔗 Download Link in Description!', tags: game + ', ' + game + ' mod, ' + game + ' hack, gaming', hashtags: '#' + g + ' #gaming #mod #hack #viral #shorts' },
-    tiktok:    { title: game + ' secret trick 🤫 #gaming #' + g + ' #shorts', description: 'This ' + game + ' trick changes EVERYTHING! Try it now 👇', tags: game + ', gaming, mod, trick', hashtags: '#' + g + ' #gaming #mod #viral #fyp' },
-    instagram: { title: '🎮 ' + game + ' MOD – Get Unlimited Coins! (2025)', description: 'Tap the link in bio to get unlimited ' + game + ' resources FREE!', tags: game + ', gaming, mod, reels', hashtags: '#gaming #' + g + ' #reels #mod #viral' },
-    facebook:  { title: game + ' HACK 2025 – Free Unlimited Resources!', description: 'Gaming trick that WORKS for ' + game + '. Join thousands using this now!', tags: game + ', gaming, hack', hashtags: '#' + g + ' #gaming #free' },
-    x:         { title: 'This ' + game + ' trick is insane 👀 #gaming', description: 'Just found this ' + game + ' method for free resources. Dropping the link 🧵', tags: 'gaming, mod, ' + game, hashtags: '#gaming #' + g + ' #mod' },
-  };
+function populateSeo(seoData) {
+  state.seoPackages = seoData;
   onSeoPlatformChange();
 }
 
@@ -763,6 +682,7 @@ function startGen() {
   document.getElementById('logBox').innerHTML     = '';
   setProgress(0);
 }
+var _demoInterval = null; // added for safety
 function stopGen() {
   state.processing = false;
   state.paused     = false;
@@ -785,7 +705,6 @@ function onPause() {
   }
 }
 function onCancel() {
-  if (state.demoInterval) clearInterval(state.demoInterval);
   stopGen();
   setStatus('Cancelled', 'err');
   addLog('--- CANCELLED ---', 'err');
@@ -804,10 +723,9 @@ function showOutput(url) {
   document.getElementById('exportBtns').style.display = 'flex';
 }
 function doExport(quality) {
-  if (!state.lastRenderedUrl || state.lastRenderedUrl === 'demo') {
+  if (!state.lastRenderedUrl) {
     showToast('No video yet. Click GENERATE first.'); return;
   }
-  if (quality === '720') { showToast('720p export is handled by the cloud API.'); return; }
   window.open(state.lastRenderedUrl, '_blank');
 }
 function openOutputFolder() { showToast('Folder access is only available in the desktop app.'); }
@@ -860,11 +778,8 @@ function getOverlays() {
 
 /* ─── HELPERS ───────────────────────────────────────────── */
 function getApiBase() {
-  if (state.renderMode === 'cloud') {
-    var u = document.getElementById('cloudApiUrl').value.trim().replace(/\/$/, '');
-    return u || null;
-  }
-  return null;
+  // Always query local app backend relative path
+  return window.location.origin;
 }
 function parseMSS(v, def) {
   v = (v || '').trim();
@@ -916,9 +831,7 @@ function showToast(msg) {
 function updateCaptionPreview() { /* handled automatically by renderLoop */ }
 
 /* ─── FIX INITIAL DISPLAY STATE ────────────────────────── */
-/* Override CSS .hidden with inline styles so there's no conflict */
 (function() {
-  document.getElementById('cloudUrlRow').style.display    = 'none';
   document.getElementById('directUrlPanel').style.display = 'none';
   document.getElementById('settingsPanel').style.display  = 'none';
   document.getElementById('exportBtns').style.display     = 'none';
@@ -930,4 +843,3 @@ renderLoop();
 /* ─── STARTUP LOG ───────────────────────────────────────── */
 addLog('AI Video Automation Studio ready.', 'info');
 addLog('Enter a game name and click SEARCH or GENERATE.', '');
-addLog('Tip: Select "Cloud" mode and enter your Oracle IP to render real videos.', '');

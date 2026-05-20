@@ -74,14 +74,14 @@ body {
   text-transform: uppercase;
 }
 .header-badge {
-  background: linear-gradient(135deg, #00e676 0%, #00c853 100%);
+  background: linear-gradient(135deg, #00d4ff 0%, #7c3aed 100%);
   color: #000;
   font-size: 12px;
   font-weight: 700;
   padding: 6px 16px;
   border-radius: 99px;
   letter-spacing: 0.5px;
-  box-shadow: 0 0 20px #00e67640;
+  box-shadow: 0 0 20px #00d4ff40;
 }
 
 /* ─── LAYOUT ─────────────────────────────────────────────────────── */
@@ -308,9 +308,6 @@ body {
   background: var(--accent);
 }
 
-/* Cloud URL Row */
-.cloud-url-row { margin-top: 10px; }
-
 /* Toggle Button */
 .toggle-btn {
   background: var(--bg-input);
@@ -330,7 +327,6 @@ body {
 
 /* Collapsible */
 .collapsible { overflow: hidden; }
-.collapsible.hidden { display: none; }
 
 /* Paste Row */
 .paste-row { display: flex; gap: 8px; margin-bottom: 10px; }
@@ -529,7 +525,6 @@ body {
 .log-line.info { color: var(--accent); }
 
 /* ─── OUTPUT CARD ────────────────────────────────────────────────── */
-.output-card { }
 .output-thumb {
   background: var(--bg-input);
   border: 1px solid var(--border);
@@ -555,7 +550,6 @@ body {
   gap: 8px;
   flex-wrap: wrap;
 }
-.export-btns.hidden { display: none; }
 
 /* ─── SEO CARDS ──────────────────────────────────────────────────── */
 .seo-card { border-color: #3a1a6e; }
@@ -638,7 +632,6 @@ body {
   pointer-events: none;
   line-height: 1.6;
 }
-.canvas-placeholder.hidden { display: none; }
 
 /* Sticker bars */
 .stickers-header {

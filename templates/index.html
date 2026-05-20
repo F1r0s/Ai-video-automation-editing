@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
   <!-- ─── HEADER ───────────────────────────────────────────────── -->
@@ -21,7 +21,7 @@
           <div class="logo-sub">Automation Studio</div>
         </div>
       </div>
-      <div class="header-badge">☁️ Cloud Rendering Active</div>
+      <div class="header-badge">⚡ Serviced Locally</div>
     </div>
   </header>
 
@@ -40,7 +40,7 @@
         </div>
       </div>
 
-      <!-- Step 2: Max Results -->
+      <!-- Step 2: Max Videos -->
       <div class="card step-card">
         <div class="step-label">2</div>
         <div class="step-content">
@@ -148,30 +148,10 @@
         </div>
       </div>
 
-      <!-- Cloud / Local Rendering -->
-      <div class="card">
-        <div class="card-header" style="color:var(--green)">☁️ CLOUD RENDERING ACTIVE</div>
-        <div class="radio-group">
-          <label class="radio-label">
-            <input type="radio" name="renderMode" value="local" id="renderLocal" checked onchange="onRenderModeChange()" />
-            <span class="radio-custom"></span> Rendering on Local PC
-          </label>
-          <label class="radio-label">
-            <input type="radio" name="renderMode" value="cloud" id="renderCloud" onchange="onRenderModeChange()" />
-            <span class="radio-custom"></span> Rendering in the Cloud
-          </label>
-        </div>
-        <!-- Cloud API URL (shown only in cloud mode) -->
-        <div id="cloudUrlRow" class="cloud-url-row hidden">
-          <label class="field-label" for="cloudApiUrl">Cloud API URL</label>
-          <input type="url" id="cloudApiUrl" class="input" placeholder="http://your-server-ip:5000" />
-        </div>
-      </div>
-
       <!-- Settings (collapsible) -->
       <div class="card">
         <button class="toggle-btn" onclick="toggleSettings()" id="settingsToggle">☰ Settings</button>
-        <div id="settingsPanel" class="collapsible hidden">
+        <div id="settingsPanel" class="collapsible hidden" style="display:none">
           <div class="field-group" style="margin-top:12px">
             <label class="field-label">Export Quality</label>
             <div class="radio-group horizontal">
@@ -208,7 +188,7 @@
       </div>
 
       <!-- Direct URL Panel -->
-      <div class="card hidden" id="directUrlPanel">
+      <div class="card" id="directUrlPanel" style="display:none">
         <div class="card-header">🔗 Paste Video URL</div>
         <p class="dim" style="font-size:12px;margin:4px 0 10px">Paste a YouTube, TikTok, or Instagram video link below.</p>
         <div class="paste-row">
@@ -277,7 +257,7 @@
         <div id="outputThumb" class="output-thumb">
           <span class="dim">🎬 No output yet</span>
         </div>
-        <div class="export-btns hidden" id="exportBtns">
+        <div class="export-btns" id="exportBtns" style="display:none">
           <button class="btn btn-purple" onclick="doExport('1080')">⬇ Export 1080p</button>
           <button class="btn btn-ghost" onclick="doExport('720')">⬇ Export 720p</button>
           <button class="btn btn-ghost" onclick="openOutputFolder()">📂 Open Folder</button>
@@ -360,6 +340,6 @@
   <!-- ─── TOAST NOTIFICATION ───────────────────────────────────── -->
   <div class="toast" id="toast"></div>
 
-  <script src="app.js"></script>
+  <script src="/static/app.js"></script>
 </body>
 </html>

@@ -38,7 +38,7 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 @app.route('/')
 def index():
-    return jsonify({"status": "AI Video Automation Cloud API is running. Ready for requests from Desktop App."})
+    return render_template('index.html')
 
 def update_status(msg):
     try:
