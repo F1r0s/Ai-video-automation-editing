@@ -1,172 +1,138 @@
 /* ═══════════════════════════════════════════════════════════════
-   app.js — AI Video Automation Studio Web Interface
-   Mirrors the desktop app.py logic 1-to-1
+   app.js — AI Video Automation Studio  (fixed clean version)
 ═══════════════════════════════════════════════════════════════ */
 
-/* ─── STATE ──────────────────────────────────────────────────────── */
-let state = {
+/* ─── STATE ───────────────────────────────────────────────── */
+var state = {
   maxVideos: 5,
   screenshotFile: null,
-  screenshotDataUrl: null,
   recordingFile: null,
   processing: false,
   paused: false,
-  progress: 0,
   searchResults: [],
   selectedResultIdx: -1,
   seoPackages: {},
   lastRenderedUrl: null,
-  renderMode: 'local',     // 'local' | 'cloud'
-  sourceMode: 'search',    // 'search' | 'url'
-  safeZoneVisible: false,
+  renderMode: 'local',
+  sourceMode: 'search',
+  demoInterval: null
 };
 
-/* ─── CANVAS STATE ───────────────────────────────────────────────── */
-const canvas   = document.getElementById('previewCanvas');
-const ctx      = canvas.getContext('2d');
-const PV_W     = 300;
-const PV_H     = 534;
+/* ─── CANVAS SETUP ───────────────────────────────────────── */
+var canvas = document.getElementById('previewCanvas');
+var ctx    = canvas.getContext('2d');
+var PV_W   = 300;
+var PV_H   = 534;
+var HANDLE_R = 7;
 
-let items         = [];       // array of canvas items
-let selectedItem  = null;
-let isDragging    = false;
-let dragMode      = null;     // 'move' | 'scale' | 'rotate'
-let dragStart     = { x: 0, y: 0 };
-let dragStartItem = { x: 0, y: 0, scale: 1 };
-let startDist     = 1;
-let startAngle    = 0;
-let startRotation = 0;
-let animFrameId   = null;
+var items        = [];
+var selectedItem = null;
+var isDragging   = false;
+var dragMode     = null;
+var dragStart    = { x: 0, y: 0 };
+var dragStartItem = { x: 0, y: 0, scale: 1 };
+var startDist    = 1;
+var startAngle   = 0;
+var startRotation = 0;
 
-const HANDLE_R    = 7;
+/* ─── CANVAS ITEM ────────────────────────────────────────── */
+function CanvasItem(kind, x, y, text, imgSrc) {
+  this.kind     = kind;
+  this.x        = x || PV_W / 2;
+  this.y        = y || PV_H / 2;
+  this.scale    = 1.0;
+  this.rotation = 0;
+  this.text     = text || '';
+  this.img      = null;
 
-/* ─── CANVAS ITEM CLASS ─────────────────────────────────────────── */
-class CanvasItem {
-  constructor(kind, x, y, text = '', imgSrc = '') {
-    this.kind     = kind;
-    this.x        = x;
-    this.y        = y;
-    this.scale    = 1.0;
-    this.rotation = 0;
-    this.text     = text;
-    this.imgSrc   = imgSrc;
-    this.img      = null;
-
-    if ((kind === 'screenshot' || kind === 'custom_img') && imgSrc) {
-      const i = new Image();
-      i.onload = () => { this.img = i; requestRender(); };
-      i.src = imgSrc;
-    }
-  }
-
-  get baseSize() {
-    const sizes = { circle: 80, arrow: 80, finger: 72, cartoon: 80, screenshot: null };
-    return sizes[this.kind] || 64;
+  if (kind === 'screenshot' && imgSrc) {
+    var self = this;
+    var img = new Image();
+    img.onload = function () {
+      self.img = img;
+      var s = PV_W / img.width;
+      if (img.height * s > PV_H + 200) s = (PV_H + 200) / img.height;
+      self.scale = s;
+    };
+    img.src = imgSrc;
   }
 }
 
-/* ─── CANVAS RENDER ─────────────────────────────────────────────── */
-function requestRender() {
-  if (!animFrameId) animFrameId = requestAnimationFrame(renderCanvas);
-}
-
-function renderCanvas() {
-  animFrameId = null;
+/* ─── RENDER LOOP — single definition ────────────────────── */
+function renderLoop() {
   ctx.clearRect(0, 0, PV_W, PV_H);
 
-  // Background gradient
-  const grad = ctx.createLinearGradient(0, 0, 0, PV_H);
+  /* background */
+  var grad = ctx.createLinearGradient(0, 0, 0, PV_H);
   grad.addColorStop(0, '#0a0a16');
   grad.addColorStop(1, '#0d0d1a');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, PV_W, PV_H);
 
-  // Draw items
-  for (const item of items) {
+  /* items */
+  for (var i = 0; i < items.length; i++) {
+    var item = items[i];
     if (item.kind === 'safe_zone') { drawSafeZone(); continue; }
     drawItem(item);
   }
 
-  // Draw selection handles on selected item
-  if (selectedItem && selectedItem.kind !== 'safe_zone') {
-    drawHandles(selectedItem);
-  }
+  /* caption preview */
+  drawCaptionPreview();
 
-  // Keep animating for sticker animations
-  animFrameId = requestAnimationFrame(renderCanvas);
+  /* selection handles */
+  if (selectedItem && selectedItem.kind !== 'safe_zone') drawHandles(selectedItem);
+
+  requestAnimationFrame(renderLoop);
 }
 
+/* ─── DRAW ITEM ──────────────────────────────────────────── */
 function drawItem(item) {
   ctx.save();
   ctx.translate(item.x, item.y);
-  ctx.rotate((item.rotation * Math.PI) / 180);
-
+  ctx.rotate(item.rotation * Math.PI / 180);
   switch (item.kind) {
-    case 'screenshot':
-      drawScreenshot(item);
-      break;
-    case 'link':
-      drawLink(item);
-      break;
-    case 'circle':
-      drawCircle(item);
-      break;
-    case 'arrow':
-      drawArrow(item);
-      break;
-    case 'finger':
-      drawFinger(item);
-      break;
-    case 'cartoon':
-      drawCartoon(item);
-      break;
-    case 'text':
-      drawTextSticker(item);
-      break;
+    case 'screenshot':   drawScreenshot(item); break;
+    case 'link':         drawLink(item);       break;
+    case 'circle':       drawCircle(item);     break;
+    case 'arrow':        drawArrow(item);      break;
+    case 'finger':       drawFinger(item);     break;
+    case 'cartoon':      drawCartoon(item);    break;
+    case 'text':         drawTextSticker(item);break;
   }
   ctx.restore();
 }
 
 function drawScreenshot(item) {
-  if (!item.img) {
-    ctx.strokeStyle = '#00d4ff40';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(-item.scale * 60, -item.scale * 60, item.scale * 120, item.scale * 120);
-    return;
-  }
-  const s  = item.scale;
-  const w  = item.img.width * s;
-  const h  = item.img.height * s;
+  if (!item.img) return;
+  var w = item.img.width  * item.scale;
+  var h = item.img.height * item.scale;
   ctx.drawImage(item.img, -w / 2, -h / 2, w, h);
 }
 
 function drawLink(item) {
-  const url    = item.text;
-  const s      = Math.max(0.5, item.scale);
-  const fs     = Math.max(9, 13 * s);
-  const color  = document.getElementById('linkColorPicker').value || '#64dcff';
-  ctx.font     = `bold ${fs}px Inter, Arial`;
-  const tw     = ctx.measureText(url).width;
-  const th     = fs + 8;
-  const pad    = 8 * s;
-  ctx.fillStyle = 'rgba(0,0,0,0.65)';
-  roundRect(ctx, -tw / 2 - pad, -th / 2, tw + pad * 2, th + 4, 8 * s);
-  ctx.fill();
-  ctx.fillStyle = color;
-  ctx.textAlign   = 'center';
+  var url   = item.text;
+  var s     = Math.max(0.5, item.scale);
+  var fs    = Math.max(9, Math.round(13 * s));
+  var color = document.getElementById('linkColorPicker').value || '#64dcff';
+  ctx.font  = 'bold ' + fs + 'px Inter, Arial';
+  var tw    = ctx.measureText(url).width;
+  var pad   = 8;
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  fillRoundRect(-tw / 2 - pad, -fs / 2 - 4, tw + pad * 2, fs + 10, 8);
+  ctx.fillStyle    = color;
+  ctx.textAlign    = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(url, 0, 2);
+  ctx.fillText(url, 0, 0);
 }
 
 function drawCircle(item) {
-  const r  = 36 * item.scale;
-  const t  = Date.now() / 1000;
-  const pulse = 1 + 0.12 * Math.sin(t * 10);
-  const rp = r * pulse;
+  var r  = 36 * item.scale;
+  var t  = Date.now() / 1000;
+  var rp = r * (1 + 0.12 * Math.sin(t * 10));
   ctx.strokeStyle = '#ff1744';
   ctx.lineWidth   = Math.max(2, 4 * item.scale);
   ctx.shadowColor = '#ff1744';
-  ctx.shadowBlur  = 12;
+  ctx.shadowBlur  = 14;
   ctx.beginPath();
   ctx.ellipse(0, 0, rp, rp * 0.75, 0, 0, Math.PI * 2);
   ctx.stroke();
@@ -174,13 +140,12 @@ function drawCircle(item) {
 }
 
 function drawArrow(item) {
-  const s  = item.scale;
-  const t  = Date.now() / 1000;
-  const bounce = 8 * Math.sin(t * 8);
-  const size = 28 * s;
-  ctx.fillStyle = '#ff1744';
+  var s      = item.scale;
+  var bounce = 8 * Math.sin(Date.now() / 125);
+  var size   = 28 * s;
+  ctx.fillStyle   = '#ff1744';
   ctx.shadowColor = '#ff1744';
-  ctx.shadowBlur = 10;
+  ctx.shadowBlur  = 10;
   ctx.beginPath();
   ctx.moveTo(0, bounce - size);
   ctx.lineTo(-size * 0.7, bounce);
@@ -192,282 +157,232 @@ function drawArrow(item) {
 }
 
 function drawFinger(item) {
-  const s  = item.scale;
-  const t  = Date.now() / 1000;
-  const bounce = 8 * Math.sin(t * 8);
-  ctx.font = `${Math.round(36 * s)}px Segoe UI Emoji, sans-serif`;
-  ctx.textAlign   = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.shadowColor = '#ff1744';
-  ctx.shadowBlur = 8;
-  ctx.fillText('☝️', 0, bounce);
+  var s      = item.scale;
+  var bounce = 8 * Math.sin(Date.now() / 125);
+  ctx.font          = Math.round(36 * s) + 'px Segoe UI Emoji, sans-serif';
+  ctx.textAlign     = 'center';
+  ctx.textBaseline  = 'middle';
+  ctx.shadowColor   = '#ff1744';
+  ctx.shadowBlur    = 8;
+  ctx.fillText('\u261d\ufe0f', 0, bounce);
   ctx.shadowBlur = 0;
 }
 
 function drawCartoon(item) {
-  const s  = item.scale;
-  const t  = Date.now() / 1000;
-  const pulse = 1 + 0.12 * Math.sin(t * 10);
-  const r = 28 * s * pulse;
-  const grd = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
-  grd.addColorStop(0, '#7c3aed');
-  grd.addColorStop(1, '#4a00e0');
-  ctx.fillStyle = grd;
+  var s  = item.scale;
+  var r  = 28 * s * (1 + 0.12 * Math.sin(Date.now() / 100));
+  var gd = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+  gd.addColorStop(0, '#a855f7');
+  gd.addColorStop(1, '#4a00e0');
+  ctx.fillStyle   = gd;
   ctx.shadowColor = '#7c3aed';
-  ctx.shadowBlur = 20;
+  ctx.shadowBlur  = 18;
   ctx.beginPath();
   ctx.arc(0, 0, r, 0, Math.PI * 2);
   ctx.fill();
   ctx.strokeStyle = '#fff';
-  ctx.lineWidth = 2 * s;
+  ctx.lineWidth   = 2 * s;
   ctx.stroke();
-  ctx.font = `${Math.round(18 * s)}px Segoe UI Emoji`;
-  ctx.textAlign = 'center';
+  ctx.shadowBlur   = 0;
+  ctx.fillStyle    = '#fff';
+  ctx.font         = Math.round(18 * s) + 'px Segoe UI Emoji, Arial';
+  ctx.textAlign    = 'center';
   ctx.textBaseline = 'middle';
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = '#fff';
-  ctx.fillText('★', 0, 1);
+  ctx.fillText('\u2605', 0, 1);
 }
 
 function drawTextSticker(item) {
-  const s  = Math.max(0.5, item.scale);
-  const t  = Date.now() / 1000;
-  const pulse = 1 + 0.1 * Math.sin(t * 10);
-  const fs = Math.round(13 * s * pulse);
-  ctx.font = `bold ${fs}px Inter, Arial`;
-  const tw = ctx.measureText(item.text).width;
-  const th = fs + 10;
-  const pad = 10;
+  var s    = Math.max(0.5, item.scale);
+  var pulse = 1 + 0.1 * Math.sin(Date.now() / 100);
+  var fs   = Math.round(13 * s * pulse);
+  ctx.font = 'bold ' + fs + 'px Inter, Arial';
+  var tw   = ctx.measureText(item.text).width;
+  var pad  = 10;
   ctx.fillStyle = 'rgba(0,0,0,0.85)';
-  roundRect(ctx, -tw / 2 - pad, -th / 2 - 2, tw + pad * 2, th + 4, 8);
-  ctx.fill();
-  ctx.fillStyle = '#ffeb3b';
-  ctx.textAlign = 'center';
+  fillRoundRect(-tw / 2 - pad, -fs / 2 - 4, tw + pad * 2, fs + 10, 8);
+  ctx.fillStyle    = '#ffeb3b';
+  ctx.textAlign    = 'center';
   ctx.textBaseline = 'middle';
-  ctx.shadowColor = '#ff9800';
-  ctx.shadowBlur = 6;
-  ctx.fillText(item.text, 0, 2);
+  ctx.shadowColor  = '#ff9800';
+  ctx.shadowBlur   = 6;
+  ctx.fillText(item.text, 0, 0);
   ctx.shadowBlur = 0;
 }
 
-/* ─── SAFE ZONE ──────────────────────────────────────────────────── */
+/* ─── SAFE ZONE ──────────────────────────────────────────── */
 function drawSafeZone() {
   ctx.save();
-
-  // Top dead zone
   ctx.fillStyle = 'rgba(255,51,0,0.18)';
   ctx.fillRect(0, 0, PV_W, PV_H * 0.12);
-  ctx.fillStyle = '#ff9980';
-  ctx.font = 'bold 8px Inter';
-  ctx.textAlign = 'center';
-  ctx.fillText('⛔ DEAD ZONE — Platform UI', PV_W / 2, PV_H * 0.06);
+  ctx.fillStyle    = '#ff9980';
+  ctx.font         = 'bold 8px Arial';
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('DEAD ZONE - Platform UI', PV_W / 2, PV_H * 0.06);
 
-  // Bottom dead zone
   ctx.fillStyle = 'rgba(255,51,0,0.18)';
   ctx.fillRect(0, PV_H * 0.80, PV_W, PV_H * 0.20);
   ctx.fillStyle = '#ff9980';
-  ctx.font = 'bold 8px Inter';
-  ctx.textAlign = 'center';
-  ctx.fillText('⛔ DEAD ZONE — Buttons + Caption', PV_W / 2, PV_H * 0.90);
+  ctx.fillText('DEAD ZONE - Buttons', PV_W / 2, PV_H * 0.90);
 
-  // Right dead zone
   ctx.fillStyle = 'rgba(255,102,0,0.18)';
   ctx.fillRect(PV_W * 0.82, PV_H * 0.12, PV_W * 0.18, PV_H * 0.68);
-  ctx.fillStyle = '#ffcc99';
-  ctx.font = 'bold 7px Inter';
-  ctx.textAlign = 'center';
-  ctx.fillText('⛔', PV_W * 0.91, PV_H * 0.42);
-  ctx.fillText('BTNS', PV_W * 0.91, PV_H * 0.50);
 
-  // Content zone guide
   ctx.strokeStyle = '#00aaff';
-  ctx.lineWidth = 1;
+  ctx.lineWidth   = 1;
   ctx.setLineDash([5, 3]);
   ctx.strokeRect(0, PV_H * 0.12, PV_W * 0.82, PV_H * 0.43);
   ctx.fillStyle = '#00aaff';
-  ctx.font = 'bold 7px Inter';
-  ctx.textAlign = 'center';
-  ctx.fillText('📸 SCREENSHOT / MAIN CONTENT', PV_W * 0.41, PV_H * 0.34);
+  ctx.font      = 'bold 7px Arial';
+  ctx.fillText('SCREENSHOT ZONE', PV_W * 0.41, PV_H * 0.34);
 
-  // Caption zone
   ctx.strokeStyle = '#00ff88';
   ctx.strokeRect(0, PV_H * 0.55, PV_W * 0.82, PV_H * 0.20);
   ctx.fillStyle = '#00ff88';
-  ctx.fillText('✅ CAPTION ZONE', PV_W * 0.41, PV_H * 0.65);
+  ctx.fillText('CAPTION ZONE', PV_W * 0.41, PV_H * 0.65);
 
-  // CPA link zone
   ctx.strokeStyle = '#ffdd00';
   ctx.strokeRect(0, PV_H * 0.75, PV_W * 0.82, PV_H * 0.05);
   ctx.fillStyle = '#ffdd00';
-  ctx.fillText('🔗 CPA LINK / CTA BAR', PV_W * 0.41, PV_H * 0.775);
+  ctx.fillText('CPA LINK ZONE', PV_W * 0.41, PV_H * 0.775);
 
   ctx.setLineDash([]);
   ctx.restore();
 }
 
-/* ─── CAPTION PREVIEW ────────────────────────────────────────────── */
+/* ─── CAPTION PREVIEW ────────────────────────────────────── */
 function drawCaptionPreview() {
-  const pos   = parseFloat(document.getElementById('captionPos').value) || 0.58;
-  const color = document.getElementById('captionColor').value || 'yellow';
-  const y     = PV_H * pos;
+  var posEl   = document.getElementById('captionPos');
+  var colorEl = document.getElementById('captionColor');
+  if (!posEl || !colorEl) return;
 
-  const colorMap = { yellow: '#ffd600', white: '#ffffff', green: '#00e676', cyan: '#00d4ff' };
-  const fillColor = colorMap[color] || '#ffd600';
+  var pos   = parseFloat(posEl.value) || 0.58;
+  var color = colorEl.value || 'yellow';
+  var y     = PV_H * pos;
+  var map   = { yellow: '#ffd600', white: '#ffffff', green: '#00e676', cyan: '#00d4ff' };
+  var fill  = map[color] || '#ffd600';
 
-  const text = 'Llama 3 Generated Subtitle';
-  const fs   = 15;
+  var text = 'AI Generated Subtitle';
+  var fs   = 15;
   ctx.save();
-  ctx.font   = `bold ${fs}px Inter, Arial`;
-  const tw   = ctx.measureText(text).width;
-  const th   = fs + 10;
-  ctx.fillStyle = 'rgba(17,17,17,0.85)';
-  roundRect(ctx, (PV_W - tw) / 2 - 8, y - th / 2 - 2, tw + 16, th + 4, 8);
-  ctx.fill();
-  ctx.fillStyle     = fillColor;
+  ctx.font          = 'bold ' + fs + 'px Inter, Arial';
+  var tw            = ctx.measureText(text).width;
+  ctx.fillStyle     = 'rgba(17,17,17,0.88)';
+  fillRoundRect((PV_W - tw) / 2 - 10, y - fs / 2 - 6, tw + 20, fs + 14, 8);
+  ctx.fillStyle     = fill;
   ctx.textAlign     = 'center';
   ctx.textBaseline  = 'middle';
-  ctx.shadowColor   = 'rgba(0,0,0,0.8)';
-  ctx.shadowBlur    = 4;
-  ctx.fillText(text, PV_W / 2, y + 2);
-  ctx.shadowBlur = 0;
+  ctx.shadowColor   = 'rgba(0,0,0,0.9)';
+  ctx.shadowBlur    = 5;
+  ctx.fillText(text, PV_W / 2, y + 1);
+  ctx.shadowBlur    = 0;
   ctx.restore();
 }
 
-/* ─── SELECTION HANDLES ──────────────────────────────────────────── */
+/* ─── SELECTION HANDLES ──────────────────────────────────── */
 function getItemBbox(item) {
-  // Approximate bounding box (axis-aligned, ignoring rotation for simplicity)
-  let hw = 40, hh = 40;
+  var hw = 40, hh = 40;
   if (item.kind === 'screenshot' && item.img) {
-    hw = (item.img.width  * item.scale) / 2;
-    hh = (item.img.height * item.scale) / 2;
-  } else if (item.kind === 'link') {
-    const fs = Math.max(9, 13 * item.scale);
-    ctx.font = `bold ${fs}px Inter`;
+    hw = item.img.width  * item.scale / 2;
+    hh = item.img.height * item.scale / 2;
+  } else if (item.kind === 'link' || item.kind === 'text') {
+    var fs = Math.round(13 * item.scale);
+    ctx.font = 'bold ' + fs + 'px Inter, Arial';
     hw = ctx.measureText(item.text).width / 2 + 16;
     hh = fs / 2 + 8;
-  } else if (item.kind === 'text') {
-    const fs = Math.round(13 * item.scale);
-    ctx.font = `bold ${fs}px Inter`;
-    hw = ctx.measureText(item.text).width / 2 + 14;
-    hh = fs / 2 + 8;
   } else {
-    hw = hh = (item.baseSize || 40) * item.scale / 2 + 4;
+    var base = { circle: 40, arrow: 32, finger: 38, cartoon: 32 };
+    var b2   = (base[item.kind] || 40) * item.scale;
+    hw = hh = b2 + 4;
   }
   return { x1: item.x - hw, y1: item.y - hh, x2: item.x + hw, y2: item.y + hh };
 }
 
 function drawHandles(item) {
-  const b = getItemBbox(item);
-  const pad = 4;
-  const x1 = b.x1 - pad, y1 = b.y1 - pad;
-  const x2 = b.x2 + pad, y2 = b.y2 + pad;
-
-  // Selection rect
+  var b   = getItemBbox(item);
+  var pad = 4;
+  var x1  = b.x1 - pad, y1 = b.y1 - pad;
+  var x2  = b.x2 + pad, y2 = b.y2 + pad;
   ctx.save();
   ctx.strokeStyle = '#00d4ff';
   ctx.lineWidth   = 1.5;
   ctx.setLineDash([4, 4]);
   ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
   ctx.setLineDash([]);
-
-  // 4 corners
-  for (const [cx, cy] of [[x1,y1],[x2,y1],[x2,y2],[x1,y2]]) {
+  [[x1,y1],[x2,y1],[x2,y2],[x1,y2]].forEach(function(pt) {
     ctx.beginPath();
-    ctx.arc(cx, cy, HANDLE_R, 0, Math.PI * 2);
-    ctx.fillStyle = '#fff';
+    ctx.arc(pt[0], pt[1], HANDLE_R, 0, Math.PI * 2);
+    ctx.fillStyle   = '#fff';
     ctx.fill();
     ctx.strokeStyle = '#00d4ff';
-    ctx.lineWidth = 2;
+    ctx.lineWidth   = 2;
     ctx.stroke();
-  }
-
-  // Rotation handle
-  const hx = (x1 + x2) / 2, hy = y1 - 22;
+  });
+  var hx = (x1 + x2) / 2, hy = y1 - 22;
   ctx.setLineDash([2, 2]);
   ctx.strokeStyle = '#00d4ff';
-  ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo((x1+x2)/2, y1); ctx.lineTo(hx, hy); ctx.stroke();
+  ctx.lineWidth   = 1;
+  ctx.beginPath(); ctx.moveTo((x1 + x2) / 2, y1); ctx.lineTo(hx, hy); ctx.stroke();
   ctx.setLineDash([]);
   ctx.beginPath();
   ctx.arc(hx, hy, HANDLE_R, 0, Math.PI * 2);
-  ctx.fillStyle = '#00d4ff';
+  ctx.fillStyle   = '#00d4ff';
   ctx.fill();
   ctx.strokeStyle = '#fff';
-  ctx.lineWidth = 1.5;
+  ctx.lineWidth   = 1.5;
   ctx.stroke();
-
   ctx.restore();
 }
 
 function getCorners(item) {
-  const b = getItemBbox(item);
-  const pad = 4;
-  const x1 = b.x1 - pad, y1 = b.y1 - pad;
-  const x2 = b.x2 + pad, y2 = b.y2 + pad;
+  var b = getItemBbox(item), pad = 4;
+  var x1 = b.x1-pad, y1 = b.y1-pad, x2 = b.x2+pad, y2 = b.y2+pad;
   return [[x1,y1],[x2,y1],[x2,y2],[x1,y2]];
 }
 function getRotHandle(item) {
-  const b = getItemBbox(item);
-  const pad = 4;
-  const x1 = b.x1 - pad, y1 = b.y1 - pad;
-  const x2 = b.x2 + pad;
-  return [(x1+x2)/2, y1 - 22];
+  var b = getItemBbox(item), pad = 4;
+  var x1 = b.x1-pad, y1 = b.y1-pad, x2 = b.x2+pad;
+  return [(x1+x2)/2, y1-22];
+}
+function hitPt(ax, ay, bx, by) {
+  return Math.hypot(ax-bx, ay-by) <= HANDLE_R + 5;
 }
 
-function hitPoint(ax, ay, bx, by, r) {
-  return Math.hypot(ax - bx, ay - by) <= r + 4;
-}
-
-/* ─── CANVAS EVENTS ──────────────────────────────────────────────── */
-canvas.addEventListener('mousedown', onCanvasMousedown);
-canvas.addEventListener('mousemove', onCanvasMousemove);
-canvas.addEventListener('mouseup',   onCanvasMouseup);
-canvas.addEventListener('dblclick',  onCanvasDblClick);
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Delete' && selectedItem) deleteSelected();
-});
-
-function getCanvasPos(e) {
-  const r = canvas.getBoundingClientRect();
+/* ─── CANVAS MOUSE EVENTS ───────────────────────────────── */
+function canvasPos(e) {
+  var r = canvas.getBoundingClientRect();
   return { x: e.clientX - r.left, y: e.clientY - r.top };
 }
-
-function onCanvasMousedown(e) {
-  const pos = getCanvasPos(e);
-
-  // Check rotation handle
+canvas.addEventListener('mousedown', function(e) {
+  var pos = canvasPos(e);
   if (selectedItem) {
-    const [rhx, rhy] = getRotHandle(selectedItem);
-    if (hitPoint(pos.x, pos.y, rhx, rhy, HANDLE_R)) {
-      dragMode     = 'rotate';
-      startAngle   = Math.atan2(pos.y - selectedItem.y, pos.x - selectedItem.x) * 180 / Math.PI;
+    var rh = getRotHandle(selectedItem);
+    if (hitPt(pos.x, pos.y, rh[0], rh[1])) {
+      dragMode      = 'rotate';
+      startAngle    = Math.atan2(pos.y - selectedItem.y, pos.x - selectedItem.x) * 180 / Math.PI;
       startRotation = selectedItem.rotation;
       isDragging    = true;
       return;
     }
-    // Check scale handles (corners)
-    for (const [cx, cy] of getCorners(selectedItem)) {
-      if (hitPoint(pos.x, pos.y, cx, cy, HANDLE_R)) {
-        dragMode   = 'scale';
-        startDist  = Math.hypot(pos.x - selectedItem.x, pos.y - selectedItem.y) || 1;
+    var corners = getCorners(selectedItem);
+    for (var ci = 0; ci < corners.length; ci++) {
+      if (hitPt(pos.x, pos.y, corners[ci][0], corners[ci][1])) {
+        dragMode      = 'scale';
+        startDist     = Math.hypot(pos.x - selectedItem.x, pos.y - selectedItem.y) || 1;
         dragStartItem = { scale: selectedItem.scale };
-        isDragging = true;
+        isDragging    = true;
         return;
       }
     }
   }
-
-  // Hit test items (top-most first)
-  let clicked = null;
-  for (let i = items.length - 1; i >= 0; i--) {
-    const item = items[i];
-    if (item.kind === 'safe_zone') continue;
-    const b = getItemBbox(item);
+  var clicked = null;
+  for (var i = items.length - 1; i >= 0; i--) {
+    if (items[i].kind === 'safe_zone') continue;
+    var b = getItemBbox(items[i]);
     if (pos.x >= b.x1 && pos.x <= b.x2 && pos.y >= b.y1 && pos.y <= b.y2) {
-      clicked = item; break;
+      clicked = items[i]; break;
     }
   }
-
   selectedItem = clicked;
   if (clicked) {
     dragMode      = 'move';
@@ -475,507 +390,380 @@ function onCanvasMousedown(e) {
     dragStart     = pos;
     dragStartItem = { x: clicked.x, y: clicked.y };
   }
-}
-
-function onCanvasMousemove(e) {
+});
+canvas.addEventListener('mousemove', function(e) {
   if (!isDragging || !selectedItem) return;
-  const pos = getCanvasPos(e);
-
+  var pos = canvasPos(e);
   if (dragMode === 'move') {
     selectedItem.x = dragStartItem.x + (pos.x - dragStart.x);
     selectedItem.y = dragStartItem.y + (pos.y - dragStart.y);
   } else if (dragMode === 'scale') {
-    const dist  = Math.hypot(pos.x - selectedItem.x, pos.y - selectedItem.y) || 1;
-    const ratio = dist / startDist;
-    selectedItem.scale = Math.max(0.1, Math.min(10, dragStartItem.scale * ratio));
+    var d = Math.hypot(pos.x - selectedItem.x, pos.y - selectedItem.y) || 1;
+    selectedItem.scale = Math.max(0.1, Math.min(10, dragStartItem.scale * d / startDist));
   } else if (dragMode === 'rotate') {
-    const angle  = Math.atan2(pos.y - selectedItem.y, pos.x - selectedItem.x) * 180 / Math.PI;
-    selectedItem.rotation = (startRotation + angle - startAngle) % 360;
+    var a = Math.atan2(pos.y - selectedItem.y, pos.x - selectedItem.x) * 180 / Math.PI;
+    selectedItem.rotation = (startRotation + a - startAngle) % 360;
   }
-}
+});
+canvas.addEventListener('mouseup',    function() { isDragging = false; dragMode = null; });
+canvas.addEventListener('dblclick',   function() { selectedItem = null; });
+document.addEventListener('keydown',  function(e) { if (e.key === 'Delete') deleteSelected(); });
 
-function onCanvasMouseup() {
-  isDragging = false;
-  dragMode   = null;
-}
-
-function onCanvasDblClick(e) {
-  // Double-click on result list item handled elsewhere;
-  // here it deselects
-  selectedItem = null;
-}
-
-/* ─── CANVAS ITEM MANAGEMENT ─────────────────────────────────────── */
+/* ─── STICKER FUNCTIONS ─────────────────────────────────── */
 function addSticker(kind) {
-  const item = new CanvasItem(kind, PV_W / 2, Math.round(PV_H * 0.12));
+  var item = new CanvasItem(kind, PV_W / 2, Math.round(PV_H * 0.25));
   items.push(item);
   selectedItem = item;
 }
-
 function addTextSticker(text) {
-  const item = new CanvasItem('text', PV_W / 2, Math.round(PV_H * 0.12), text);
+  var item = new CanvasItem('text', PV_W / 2, Math.round(PV_H * 0.25), text);
   items.push(item);
   selectedItem = item;
 }
-
 function deleteSelected() {
   if (!selectedItem) return;
-  const idx = items.indexOf(selectedItem);
+  var idx = items.indexOf(selectedItem);
   if (idx !== -1) items.splice(idx, 1);
   selectedItem = null;
 }
-
 function clearStickers() {
-  items = items.filter(i => i.kind === 'screenshot' || i.kind === 'link' || i.kind === 'safe_zone');
+  items = items.filter(function(i) {
+    return i.kind === 'screenshot' || i.kind === 'link' || i.kind === 'safe_zone';
+  });
   selectedItem = null;
 }
-
 function toggleSafeZone() {
-  const idx = items.findIndex(i => i.kind === 'safe_zone');
-  if (idx !== -1) {
-    items.splice(idx, 1);
-    state.safeZoneVisible = false;
-  } else {
-    items.push(new CanvasItem('safe_zone', PV_W / 2, PV_H / 2));
-    state.safeZoneVisible = true;
-  }
+  var idx = items.findIndex(function(i) { return i.kind === 'safe_zone'; });
+  if (idx !== -1) items.splice(idx, 1);
+  else items.push(new CanvasItem('safe_zone', PV_W / 2, PV_H / 2));
 }
 
-/* ─── SCREENSHOT HANDLING ────────────────────────────────────────── */
+/* ─── FILE INPUTS ───────────────────────────────────────── */
 function onScreenshot(input) {
-  const file = input.files[0];
+  var file = input.files[0];
   if (!file) return;
   state.screenshotFile = file;
   document.getElementById('ssName').textContent = file.name;
-
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    state.screenshotDataUrl = e.target.result;
-    // Remove old screenshot
-    const idx = items.findIndex(i => i.kind === 'screenshot');
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var idx = items.findIndex(function(i) { return i.kind === 'screenshot'; });
     if (idx !== -1) items.splice(idx, 1);
-
-    const ssItem = new CanvasItem('screenshot', PV_W / 2, PV_H / 2, '', e.target.result);
-    ssItem.scale = 1.0; // will auto-fit once image loads
-    ssItem.img = new Image();
-    ssItem.img.onload = () => {
-      // Auto-fit scale
-      let scale = PV_W / ssItem.img.width;
-      if (ssItem.img.height * scale > PV_H + 200) scale = (PV_H + 200) / ssItem.img.height;
-      ssItem.scale = scale;
-    };
-    ssItem.img.src = e.target.result;
-    items.unshift(ssItem); // insert at bottom
-    selectedItem = ssItem;
-    // Hide placeholder
-    document.getElementById('canvasPlaceholder').classList.add('hidden');
+    var ss = new CanvasItem('screenshot', PV_W / 2, PV_H / 2, '', e.target.result);
+    items.unshift(ss);
+    selectedItem = ss;
+    document.getElementById('canvasPlaceholder').style.display = 'none';
     updateLinkOverlay();
   };
   reader.readAsDataURL(file);
 }
-
 function onRecording(input) {
-  const file = input.files[0];
+  var file = input.files[0];
   if (!file) return;
   state.recordingFile = file;
   document.getElementById('recName').textContent = file.name;
-  log(`Screen recording selected: ${file.name}`, 'info');
+  addLog('Screen recording selected: ' + file.name, 'info');
 }
 
-/* ─── LINK OVERLAY ───────────────────────────────────────────────── */
-function onLinkChange() {
-  updateLinkOverlay();
-}
-
+/* ─── LINK OVERLAY ──────────────────────────────────────── */
+function onLinkChange() { updateLinkOverlay(); }
 function updateLinkOverlay() {
-  const url = document.getElementById('landingUrl').value.trim();
-  const idx = items.findIndex(i => i.kind === 'link');
+  var url = document.getElementById('landingUrl').value.trim();
+  var idx = items.findIndex(function(i) { return i.kind === 'link'; });
   if (url) {
-    if (idx === -1) {
-      items.push(new CanvasItem('link', PV_W / 2, PV_H - 20, url));
-    } else {
-      items[idx].text = url;
-    }
+    if (idx === -1) items.push(new CanvasItem('link', PV_W / 2, PV_H - 30, url));
+    else items[idx].text = url;
   } else {
     if (idx !== -1) items.splice(idx, 1);
   }
 }
 
-/* ─── LINK COLOR ─────────────────────────────────────────────────── */
+/* ─── COLOR SYNC ────────────────────────────────────────── */
 function onLinkColorChange() {
-  const val = document.getElementById('linkColorPicker').value;
-  document.getElementById('linkColorHex').value = val;
+  document.getElementById('linkColorHex').value = document.getElementById('linkColorPicker').value;
 }
 function onLinkHexChange() {
-  const val = document.getElementById('linkColorHex').value;
-  if (/^#[0-9a-fA-F]{6}$/.test(val)) {
-    document.getElementById('linkColorPicker').value = val;
-  }
+  var v = document.getElementById('linkColorHex').value;
+  if (/^#[0-9a-fA-F]{6}$/.test(v)) document.getElementById('linkColorPicker').value = v;
 }
 
-/* ─── CAPTION PREVIEW UPDATE ─────────────────────────────────────── */
-function updateCaptionPreview() {
-  // Render loop handles this automatically
-}
-
-/* ─── SPINNER ────────────────────────────────────────────────────── */
+/* ─── SPINNER ───────────────────────────────────────────── */
 function changeMax(delta) {
   state.maxVideos = Math.max(1, Math.min(30, state.maxVideos + delta));
   document.getElementById('maxVal').textContent = state.maxVideos;
 }
 
-/* ─── SETTINGS TOGGLE ────────────────────────────────────────────── */
+/* ─── SETTINGS TOGGLE ───────────────────────────────────── */
 function toggleSettings() {
-  const panel = document.getElementById('settingsPanel');
-  panel.classList.toggle('hidden');
+  var p = document.getElementById('settingsPanel');
+  p.style.display = (p.style.display === 'none' || p.style.display === '') ? 'block' : 'none';
 }
 
-/* ─── RENDER MODE ────────────────────────────────────────────────── */
+/* ─── RENDER MODE ───────────────────────────────────────── */
 function onRenderModeChange() {
-  state.renderMode = document.querySelector('input[name="renderMode"]:checked').value;
-  const cloudUrlRow = document.getElementById('cloudUrlRow');
-  if (state.renderMode === 'cloud') {
-    cloudUrlRow.classList.remove('hidden');
-  } else {
-    cloudUrlRow.classList.add('hidden');
-  }
+  var checked = document.querySelector('input[name="renderMode"]:checked');
+  state.renderMode = checked ? checked.value : 'local';
+  var row = document.getElementById('cloudUrlRow');
+  row.style.display = state.renderMode === 'cloud' ? 'block' : 'none';
 }
 
-/* ─── SOURCE MODE ────────────────────────────────────────────────── */
+/* ─── SOURCE MODE ───────────────────────────────────────── */
 function onSourceModeChange() {
-  state.sourceMode = document.querySelector('input[name="sourceMode"]:checked').value;
-  const directPanel = document.getElementById('directUrlPanel');
-  const searchCard  = document.getElementById('searchCard');
-  if (state.sourceMode === 'url') {
-    directPanel.classList.remove('hidden');
-    searchCard.classList.add('hidden');
+  var checked = document.querySelector('input[name="sourceMode"]:checked');
+  state.sourceMode = checked ? checked.value : 'search';
+  document.getElementById('directUrlPanel').style.display = state.sourceMode === 'url'  ? 'block' : 'none';
+  document.getElementById('searchCard').style.display     = state.sourceMode === 'search'? 'block' : 'none';
+}
+
+/* ─── PASTE ─────────────────────────────────────────────── */
+function pasteUrl() {
+  if (navigator.clipboard && navigator.clipboard.readText) {
+    navigator.clipboard.readText().then(function(t) {
+      document.getElementById('directUrl').value = t;
+    }).catch(function() { showToast('Clipboard access denied — paste manually'); });
   } else {
-    directPanel.classList.add('hidden');
-    searchCard.classList.remove('hidden');
+    showToast('Clipboard API not available — paste manually');
   }
 }
 
-/* ─── PASTE URL ──────────────────────────────────────────────────── */
-async function pasteUrl() {
-  try {
-    const text = await navigator.clipboard.readText();
-    document.getElementById('directUrl').value = text;
-  } catch {
-    toast('⚠ Clipboard access denied. Paste manually.');
-  }
-}
-
-/* ─── SEARCH ─────────────────────────────────────────────────────── */
+/* ─── SEARCH ────────────────────────────────────────────── */
 function onSearch() {
-  const game = document.getElementById('gameName').value.trim();
-  if (!game) { toast('⚠ Enter a game name first!'); return; }
+  var game = document.getElementById('gameName').value.trim();
+  if (!game) { showToast('Enter a game name first!'); return; }
 
-  const btn = document.getElementById('searchBtn');
-  btn.disabled  = true;
-  btn.textContent = '🔍 Searching...';
-
-  const list = document.getElementById('resultsList');
-  list.innerHTML = '<div class="results-placeholder">Searching...</div>';
-  state.searchResults = [];
+  var btn  = document.getElementById('searchBtn');
+  var list = document.getElementById('resultsList');
+  btn.disabled    = true;
+  btn.textContent = 'Searching...';
+  list.innerHTML  = '<div class="results-placeholder">Searching for ' + game + '...</div>';
+  state.searchResults     = [];
   state.selectedResultIdx = -1;
 
-  // Determine which API endpoint to use
-  const apiBase = getApiBase();
-  if (!apiBase) {
-    // Demo mode — generate fake results
-    setTimeout(() => {
-      const fakeTitles = [
-        { title: `${game} MOD Unlimited Money 2025`, url: 'https://youtube.com/shorts/demo1', ratio: '9:16', dur: 28 },
-        { title: `${game} HACK Gameplay Tutorial`, url: 'https://youtube.com/shorts/demo2', ratio: '9:16', dur: 22 },
-        { title: `${game} Best Settings Guide`, url: 'https://youtube.com/watch?v=demo3', ratio: '16:9', dur: 180 },
-        { title: `${game} Season 10 New Update`, url: 'https://youtube.com/shorts/demo4', ratio: '9:16', dur: 30 },
-        { title: `${game} Pro Tips 2025`, url: 'https://youtube.com/watch?v=demo5', ratio: '16:9', dur: 240 },
+  var api = getApiBase();
+  if (!api) {
+    /* demo results */
+    setTimeout(function() {
+      var fake = [
+        { title: game + ' MOD Unlimited Money 2025', url: 'https://youtube.com/shorts/demo1', ratio: '9:16', dur: 28 },
+        { title: game + ' HACK Gameplay Tutorial',   url: 'https://youtube.com/shorts/demo2', ratio: '9:16', dur: 22 },
+        { title: game + ' Best Settings Guide',      url: 'https://youtube.com/watch?v=demo3',ratio: '16:9', dur: 180 },
+        { title: game + ' Season 10 New Update',     url: 'https://youtube.com/shorts/demo4', ratio: '9:16', dur: 30 },
+        { title: game + ' Pro Tips 2025',            url: 'https://youtube.com/watch?v=demo5',ratio: '16:9', dur: 240 },
       ];
-      state.searchResults = fakeTitles;
-      renderResultsList(fakeTitles);
-      btn.disabled = false;
+      state.searchResults = fake;
+      renderResultsList(fake);
+      btn.disabled    = false;
       btn.textContent = '🔍 SEARCH';
-      setStatus(`Found ${fakeTitles.length} results.`, 'ok');
+      setStatus('Found ' + fake.length + ' results (demo mode).', 'ok');
     }, 1200);
     return;
   }
 
-  // Real API call
-  const form = new FormData();
+  var form = new FormData();
   form.append('game', game);
   form.append('max', state.maxVideos);
-
-  fetch(`${apiBase}/api/search`, { method: 'POST', body: form })
-    .then(r => r.json())
-    .then(data => {
-      btn.disabled = false;
+  fetch(api + '/api/search', { method: 'POST', body: form })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      btn.disabled    = false;
       btn.textContent = '🔍 SEARCH';
       if (data.results) {
         state.searchResults = data.results;
         renderResultsList(data.results);
-        setStatus(`Found ${data.results.length} results.`, 'ok');
+        setStatus('Found ' + data.results.length + ' results.', 'ok');
       } else {
-        list.innerHTML = `<div class="results-placeholder" style="color:var(--red)">Error: ${data.error || 'No results'}</div>`;
+        list.innerHTML = '<div class="results-placeholder" style="color:#ff4f4f">Error: ' + (data.error || 'No results') + '</div>';
         setStatus('Search failed.', 'err');
       }
     })
-    .catch(err => {
-      btn.disabled = false;
+    .catch(function(err) {
+      btn.disabled    = false;
       btn.textContent = '🔍 SEARCH';
-      list.innerHTML = `<div class="results-placeholder" style="color:var(--red)">Network error. Running in demo mode.</div>`;
-      log(`Search error: ${err.message}`, 'err');
+      list.innerHTML  = '<div class="results-placeholder" style="color:#ff4f4f">Cannot reach API — running in demo mode.</div>';
+      addLog('Search error: ' + err.message, 'err');
     });
 }
 
 function renderResultsList(results) {
-  const list       = document.getElementById('resultsList');
-  const ratioFilter = document.getElementById('ratioFilter').value;
-  list.innerHTML   = '';
-
-  let visible = results;
-  if (ratioFilter === '9:16') visible = results.filter(r => r.ratio === '9:16');
-  else if (ratioFilter === '16:9') visible = results.filter(r => r.ratio === '16:9');
-
+  var list        = document.getElementById('resultsList');
+  var ratioFilter = document.getElementById('ratioFilter').value;
+  var visible     = results.filter(function(r) {
+    if (ratioFilter === '9:16')  return r.ratio === '9:16';
+    if (ratioFilter === '16:9')  return r.ratio === '16:9';
+    return true;
+  });
   if (!visible.length) {
-    list.innerHTML = `<div class="results-placeholder">No results for filter "${ratioFilter}"</div>`;
+    list.innerHTML = '<div class="results-placeholder">No results for filter "' + ratioFilter + '"</div>';
     return;
   }
-
-  visible.forEach((r, i) => {
-    const div = document.createElement('div');
+  list.innerHTML = '';
+  visible.forEach(function(r, i) {
+    var div   = document.createElement('div');
     div.className = 'result-item ' + (r.ratio === '9:16' ? 'ratio-916' : 'ratio-169');
-    const dur = r.dur ? `[${r.dur}s] ` : '';
-    const shortUrl = (r.url || '').substring(0, 50) + ((r.url || '').length > 50 ? '...' : '');
-    div.textContent = `[${r.ratio || '?'}] ${dur}${r.title}  |  ${shortUrl}`;
-    div.title = r.url || r.title;
-    div.dataset.idx = i;
-    div.addEventListener('click', () => selectResult(i, div));
-    div.addEventListener('dblclick', () => { selectResult(i, div); openSelectedInBrowser(); });
+    var dur   = r.dur ? '[' + r.dur + 's] ' : '';
+    var short = (r.url || '').substring(0, 45) + ((r.url || '').length > 45 ? '…' : '');
+    div.textContent = '[' + (r.ratio || '?') + '] ' + dur + r.title + '  |  ' + short;
+    div.title       = r.url || r.title;
+    (function(idx, el) {
+      el.addEventListener('click',   function() { selectResult(idx, el); });
+      el.addEventListener('dblclick',function() { selectResult(idx, el); openSelectedInBrowser(); });
+    })(i, div);
     list.appendChild(div);
   });
-
-  // Auto-select first
-  if (visible.length > 0) {
-    selectResult(0, list.firstChild);
-  }
+  selectResult(0, list.firstChild);
 }
 
 function selectResult(idx, el) {
   state.selectedResultIdx = idx;
-  document.querySelectorAll('.result-item').forEach(d => d.classList.remove('selected'));
+  document.querySelectorAll('.result-item').forEach(function(d) { d.classList.remove('selected'); });
   if (el) el.classList.add('selected');
 }
 
 function openSelectedInBrowser() {
-  const idx = state.selectedResultIdx;
-  if (idx < 0 || idx >= state.searchResults.length) {
-    toast('⚠ Select a video from the list first.');
-    return;
-  }
-  const url = state.searchResults[idx].url || state.searchResults[idx].webpage_url;
+  var idx = state.selectedResultIdx;
+  if (idx < 0 || idx >= state.searchResults.length) { showToast('Select a video first.'); return; }
+  var url = state.searchResults[idx].url || state.searchResults[idx].webpage_url || '';
   if (url) window.open(url, '_blank');
-  else toast('⚠ No URL found for this result.');
+  else showToast('No URL for this result.');
 }
 
-/* ─── GENERATE ───────────────────────────────────────────────────── */
+/* ─── GENERATE ──────────────────────────────────────────── */
 function onGenerate() {
-  const game = document.getElementById('gameName').value.trim();
-  const url  = document.getElementById('landingUrl').value.trim();
+  var game = document.getElementById('gameName').value.trim();
+  var url  = document.getElementById('landingUrl').value.trim();
+  if (!game) { showToast('Enter a game name!'); return; }
+  if (!url)  { showToast('Enter a CPA landing page link!'); return; }
 
-  if (!game) { toast('⚠ Enter game name!'); return; }
-  if (!url)  { toast('⚠ Enter a CPA landing page link!'); return; }
+  var api = getApiBase();
+  if (!api) { runDemo(game, url); return; }
 
-  const apiBase = getApiBase();
-  if (!apiBase) {
-    // DEMO mode — simulate pipeline
-    runDemoGeneration(game, url);
-    return;
-  }
+  if (!state.screenshotFile) { showToast('Choose a channel screenshot first!'); return; }
 
-  // Real API call
-  if (!state.screenshotFile) { toast('⚠ Choose a channel screenshot first!'); return; }
-
-  startGeneration();
-
-  const form = new FormData();
-  form.append('game', game);
-  form.append('url', url);
-  form.append('max', state.maxVideos);
-  form.append('caption_color', document.getElementById('captionColor').value);
-  form.append('caption_pos',   document.getElementById('captionPos').value);
+  startGen();
+  var form = new FormData();
+  form.append('game',               game);
+  form.append('url',                url);
+  form.append('max',                state.maxVideos);
+  form.append('caption_color',      document.getElementById('captionColor').value);
+  form.append('caption_pos',        document.getElementById('captionPos').value);
   form.append('landing_link_color', document.getElementById('linkColorPicker').value);
-  form.append('link_font', document.getElementById('linkFont').value);
-  form.append('sfx_enabled', document.getElementById('sfxEnabled').checked);
-  form.append('custom_script', document.getElementById('customScript').value.trim());
-  form.append('screenshot', state.screenshotFile);
+  form.append('link_font',          document.getElementById('linkFont').value);
+  form.append('sfx_enabled',        document.getElementById('sfxEnabled').checked);
+  form.append('custom_script',      document.getElementById('customScript').value.trim());
+  form.append('screenshot',         state.screenshotFile);
   if (state.recordingFile) form.append('manual_recording', state.recordingFile);
-
-  // Overlays & layout
   form.append('overlays', JSON.stringify(getOverlays()));
-  form.append('layout', JSON.stringify(getLayout()));
+  form.append('layout',   JSON.stringify(getLayout()));
+  form.append('mode',     state.recordingFile ? 'reward_first' : 'legacy');
+  form.append('hook_start', parseMSS(document.getElementById('hookStartSearch').value, 0));
+  form.append('hook_end',   parseMSS(document.getElementById('hookEndSearch').value, 10));
 
-  // Mode
-  const mode = (state.recordingFile) ? 'reward_first' : 'legacy';
-  form.append('mode', mode);
-
-  // Hook timing
-  const hookStart = parseMSS(document.getElementById('hookStartSearch').value, 0);
-  const hookEnd   = parseMSS(document.getElementById('hookEndSearch').value, 10);
-  form.append('hook_start', hookStart);
-  form.append('hook_end', hookEnd);
-
-  log(`▶ Starting ${mode} pipeline for: ${game}`);
+  addLog('Starting pipeline for: ' + game);
   setProgress(5);
 
-  // Poll status
-  const pollInterval = startStatusPoll(apiBase);
+  var pollId = setInterval(function() {
+    fetch(api + '/api/status').then(function(r) { return r.json(); }).then(function(d) {
+      if (!d.message) return;
+      var pct = (d.message.match(/\[(\d+)%\]/) || [])[1];
+      if (pct) setProgress(parseInt(pct));
+      setStatus(d.message, 'info');
+      addLog(d.message);
+    }).catch(function(){});
+  }, 1500);
 
-  const endpoint = mode === 'reward_first' ? '/api/cloud_process' : '/api/generate';
-
-  fetch(`${apiBase}${endpoint}`, { method: 'POST', body: form })
-    .then(r => r.json())
-    .then(data => {
-      clearInterval(pollInterval);
-      stopGeneration();
+  var endpoint = state.recordingFile ? '/api/cloud_process' : '/api/generate';
+  fetch(api + endpoint, { method: 'POST', body: form })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      clearInterval(pollId);
+      stopGen();
       if (data.success) {
         setProgress(100);
-        setStatus('✅ Render complete!', 'ok');
-        log(`✅ ${data.processed_count} video(s) processed. Sent to Telegram.`, 'ok');
-        showOutput(`${apiBase}${data.video_url_1080 || data.video_url}`);
-        if (data.seo) populateSeo(data.seo);
+        setStatus('Render complete!', 'ok');
+        addLog('Done! ' + data.processed_count + ' video(s) processed.', 'ok');
+        showOutput(api + (data.video_url_1080 || data.video_url));
       } else {
-        setStatus('❌ Render failed.', 'err');
-        log(`Error: ${data.error}`, 'err');
+        setStatus('Render failed.', 'err');
+        addLog('Error: ' + data.error, 'err');
       }
     })
-    .catch(err => {
-      clearInterval(pollInterval);
-      stopGeneration();
-      setStatus('❌ Network error', 'err');
-      log(`Network error: ${err.message}`, 'err');
+    .catch(function(err) {
+      clearInterval(pollId);
+      stopGen();
+      setStatus('Network error', 'err');
+      addLog('Network error: ' + err.message, 'err');
     });
 }
 
-/* Demo mode simulation */
-function runDemoGeneration(game, url) {
-  startGeneration();
-  const steps = [
-    [5,   `▶ Starting pipeline for: ${game}`],
-    [12,  '🔍 Searching for gameplay videos...'],
-    [22,  '✅ Found 5 candidate video(s).'],
-    [30,  '⬇ Downloading candidate 1/1...'],
-    [40,  '✓ Download succeeded. Processing...'],
-    [50,  '🤖 Generating AI script via Llama 3...'],
-    [58,  '🎙 Generating ElevenLabs voiceover...'],
-    [65,  '📝 Transcribing audio for subtitles...'],
-    [72,  '🎬 Compositing overlays & stickers...'],
-    [80,  '🔧 Encoding final 1080p video...'],
-    [90,  '📱 Sending to Telegram...'],
-    [100, '✅ Render complete! Video sent to Telegram.'],
+function runDemo(game, url) {
+  startGen();
+  var steps = [
+    [5,  'Starting pipeline for: ' + game],
+    [12, 'Searching for gameplay videos...'],
+    [22, 'Found 5 candidates.'],
+    [30, 'Downloading candidate 1/1...'],
+    [42, 'Download succeeded. Processing...'],
+    [52, 'Generating AI script via Llama 3...'],
+    [60, 'Generating ElevenLabs voiceover...'],
+    [68, 'Transcribing audio for subtitles...'],
+    [76, 'Compositing overlays & stickers...'],
+    [85, 'Encoding final 1080p video...'],
+    [92, 'Sending to Telegram...'],
+    [100,'Render complete! Video sent to Telegram.']
   ];
-
-  let i = 0;
-  const interval = setInterval(() => {
-    if (!state.processing || state.paused) return;
+  var i = 0;
+  state.demoInterval = setInterval(function() {
+    if (state.paused || !state.processing) return;
     if (i >= steps.length) {
-      clearInterval(interval);
-      stopGeneration();
-      setStatus('✅ Demo complete!', 'ok');
+      clearInterval(state.demoInterval);
+      stopGen();
+      setStatus('Demo complete!', 'ok');
       showDemoOutput(game, url);
-      generateDemoSeo(game);
+      buildDemoSeo(game);
       return;
     }
-    const [prog, msg] = steps[i++];
-    setProgress(prog);
-    setStatus(msg, prog < 100 ? 'info' : 'ok');
-    log(msg, prog < 100 ? '' : 'ok');
-  }, 800);
-
-  state._demoInterval = interval;
+    var step = steps[i++];
+    setProgress(step[0]);
+    setStatus(step[1], step[0] < 100 ? 'info' : 'ok');
+    addLog(step[1], step[0] === 100 ? 'ok' : '');
+  }, 700);
 }
 
 function showDemoOutput(game, url) {
-  const thumb = document.getElementById('outputThumb');
-  thumb.innerHTML = `
-    <div style="text-align:center;padding:12px">
-      <div style="font-size:40px;margin-bottom:8px">🎬</div>
-      <div style="font-size:13px;font-weight:700;color:var(--green);margin-bottom:4px">${game}_promo.mp4</div>
-      <div style="font-size:11px;color:var(--fg-dim)">1080p · 30s · 9:16 vertical</div>
-      <div style="font-size:11px;color:var(--fg-dim);margin-top:4px">🔗 ${url}</div>
-      <div style="font-size:11px;color:var(--orange);margin-top:6px">⚠ Demo mode — connect cloud API to render real videos</div>
-    </div>
-  `;
+  var t = document.getElementById('outputThumb');
+  t.innerHTML = '<div style="text-align:center;padding:16px">'
+    + '<div style="font-size:48px;margin-bottom:8px">🎬</div>'
+    + '<div style="font-size:14px;font-weight:700;color:#00e676;margin-bottom:4px">' + game + '_promo.mp4</div>'
+    + '<div style="font-size:12px;color:#6a6a9a">1080p · 30s · 9:16 vertical</div>'
+    + '<div style="font-size:11px;color:#6a6a9a;margin-top:4px">Link: ' + url + '</div>'
+    + '<div style="font-size:11px;color:#ff9800;margin-top:8px">Demo mode — add Cloud API URL to render real videos</div>'
+    + '</div>';
   state.lastRenderedUrl = 'demo';
-  document.getElementById('exportBtns').classList.remove('hidden');
+  document.getElementById('exportBtns').style.display = 'flex';
 }
 
-function generateDemoSeo(game) {
-  const platforms = {
-    youtube: {
-      title: `🔥 ${game} MOD 2025 – Unlimited Resources EXPOSED!`,
-      description: `Are you still playing ${game} the boring way? This INSANE trick gives you unlimited resources without spending a dime. Watch now before it gets removed!\n\n✅ 100% Free\n✅ Works on iOS & Android\n✅ No root required\n\n🔗 Download Link in Description!`,
-      tags: `${game}, ${game} mod, ${game} hack, ${game} free, ${game} unlimited`,
-      hashtags: `#${game.replace(/\s/g,'')} #gaming #mod #hack #free #viral #shorts`,
-    },
-    tiktok: {
-      title: `${game} secret trick 🤫 #gaming #${game.replace(/\s/g,'')} #shorts`,
-      description: `This ${game} trick changes EVERYTHING! Try it now 👇`,
-      tags: `${game}, gaming, mod, trick, viral`,
-      hashtags: `#${game.replace(/\s/g,'')} #gaming #mod #viral #fyp #foryoupage`,
-    },
-    instagram: {
-      title: `🎮 ${game} MOD – Get Unlimited Coins! (2025)`,
-      description: `Tap the link in bio to get unlimited ${game} resources for FREE! This working method was just discovered and it's going viral.`,
-      tags: `${game}, gaming, mod, reels, hack`,
-      hashtags: `#gaming #${game.replace(/\s/g,'')} #reels #mod #viral #explore`,
-    },
-    facebook: {
-      title: `${game} HACK 2025 – Free Unlimited Resources (Still Working!)`,
-      description: `🎮 Gaming trick that ACTUALLY works for ${game}. Join 50,000+ players using this method right now!`,
-      tags: `${game}, gaming, hack, free`,
-      hashtags: `#${game.replace(/\s/g,'')} #gaming #mod #free`,
-    },
-    x: {
-      title: `This ${game} trick is insane 👀 #gaming #mod`,
-      description: `Just found this ${game} method that gives you unlimited resources for FREE. Dropping the link 🧵`,
-      tags: `gaming, mod, ${game}`,
-      hashtags: `#gaming #${game.replace(/\s/g,'')} #mod`,
-    },
+function buildDemoSeo(game) {
+  var g = game.replace(/\s+/g, '');
+  state.seoPackages = {
+    youtube:   { title: '🔥 ' + game + ' MOD 2025 – Unlimited Resources EXPOSED!', description: 'Get unlimited ' + game + ' resources for FREE. 100% working method.\n\n✅ Free\n✅ iOS & Android\n✅ No root required\n\n🔗 Download Link in Description!', tags: game + ', ' + game + ' mod, ' + game + ' hack, gaming', hashtags: '#' + g + ' #gaming #mod #hack #viral #shorts' },
+    tiktok:    { title: game + ' secret trick 🤫 #gaming #' + g + ' #shorts', description: 'This ' + game + ' trick changes EVERYTHING! Try it now 👇', tags: game + ', gaming, mod, trick', hashtags: '#' + g + ' #gaming #mod #viral #fyp' },
+    instagram: { title: '🎮 ' + game + ' MOD – Get Unlimited Coins! (2025)', description: 'Tap the link in bio to get unlimited ' + game + ' resources FREE!', tags: game + ', gaming, mod, reels', hashtags: '#gaming #' + g + ' #reels #mod #viral' },
+    facebook:  { title: game + ' HACK 2025 – Free Unlimited Resources!', description: 'Gaming trick that WORKS for ' + game + '. Join thousands using this now!', tags: game + ', gaming, hack', hashtags: '#' + g + ' #gaming #free' },
+    x:         { title: 'This ' + game + ' trick is insane 👀 #gaming', description: 'Just found this ' + game + ' method for free resources. Dropping the link 🧵', tags: 'gaming, mod, ' + game, hashtags: '#gaming #' + g + ' #mod' },
   };
-  state.seoPackages = platforms;
   onSeoPlatformChange();
 }
 
-/* ─── STATUS POLLING ─────────────────────────────────────────────── */
-function startStatusPoll(apiBase) {
-  return setInterval(() => {
-    fetch(`${apiBase}/api/status`)
-      .then(r => r.json())
-      .then(d => {
-        if (d.message) {
-          const msg  = d.message;
-          const pctM = msg.match(/\[(\d+)%\]/);
-          if (pctM) setProgress(parseInt(pctM[1]));
-          setStatus(msg, 'info');
-          log(msg);
-        }
-      })
-      .catch(() => {});
-  }, 1500);
-}
-
-/* ─── GENERATE STATE HELPERS ─────────────────────────────────────── */
-function startGeneration() {
+/* ─── GENERATE HELPERS ──────────────────────────────────── */
+function startGen() {
   state.processing = true;
   state.paused     = false;
   document.getElementById('generateBtn').disabled = true;
   document.getElementById('pauseBtn').disabled    = false;
   document.getElementById('cancelBtn').disabled   = false;
+  document.getElementById('logBox').innerHTML     = '';
   setProgress(0);
-  document.getElementById('logBox').innerHTML = '';
 }
-
-function stopGeneration() {
+function stopGen() {
   state.processing = false;
   state.paused     = false;
   document.getElementById('generateBtn').disabled = false;
@@ -983,233 +771,163 @@ function stopGeneration() {
   document.getElementById('cancelBtn').disabled   = true;
   document.getElementById('pauseBtn').textContent = '⏸ PAUSE';
 }
-
 function onPause() {
   state.paused = !state.paused;
-  const btn = document.getElementById('pauseBtn');
+  var btn = document.getElementById('pauseBtn');
   if (state.paused) {
     btn.textContent = '▶ RESUME';
     setStatus('PAUSED', 'err');
-    log('--- PAUSED ---');
+    addLog('--- PAUSED ---');
   } else {
     btn.textContent = '⏸ PAUSE';
     setStatus('Resuming...', 'info');
-    log('--- RESUMED ---');
+    addLog('--- RESUMED ---');
   }
 }
-
 function onCancel() {
-  if (state._demoInterval) clearInterval(state._demoInterval);
-  stopGeneration();
+  if (state.demoInterval) clearInterval(state.demoInterval);
+  stopGen();
   setStatus('Cancelled', 'err');
-  log('--- CANCELLED BY USER ---', 'err');
+  addLog('--- CANCELLED ---', 'err');
   setProgress(0);
 }
 
-/* ─── OUTPUT ─────────────────────────────────────────────────────── */
+/* ─── OUTPUT ────────────────────────────────────────────── */
 function showOutput(url) {
-  const thumb = document.getElementById('outputThumb');
   state.lastRenderedUrl = url;
+  var t = document.getElementById('outputThumb');
   if (url && url.startsWith('http')) {
-    thumb.innerHTML = `<video src="${url}" controls style="max-width:100%;max-height:240px;border-radius:8px"></video>`;
+    t.innerHTML = '<video src="' + url + '" controls style="max-width:100%;max-height:220px;border-radius:8px"></video>';
   } else {
-    thumb.innerHTML = `<span style="color:var(--green);font-weight:700">🎬 ${url}</span>`;
+    t.innerHTML = '<span style="color:#00e676;font-weight:700">🎬 ' + url + '</span>';
   }
-  document.getElementById('exportBtns').classList.remove('hidden');
+  document.getElementById('exportBtns').style.display = 'flex';
 }
-
 function doExport(quality) {
-  const url = state.lastRenderedUrl;
-  if (!url || url === 'demo') {
-    toast('⚠ No rendered video found. Run GENERATE first.');
-    return;
+  if (!state.lastRenderedUrl || state.lastRenderedUrl === 'demo') {
+    showToast('No video yet. Click GENERATE first.'); return;
   }
-  if (quality === '720') {
-    toast('720p export is handled by the cloud API.');
-  } else {
-    if (url.startsWith('http')) window.open(url, '_blank');
-    else toast('No local download available in web mode.');
-  }
+  if (quality === '720') { showToast('720p export is handled by the cloud API.'); return; }
+  window.open(state.lastRenderedUrl, '_blank');
 }
+function openOutputFolder() { showToast('Folder access is only available in the desktop app.'); }
 
-function openOutputFolder() {
-  toast('📂 Folder access is only available in the desktop app.');
-}
-
-/* ─── SEO ─────────────────────────────────────────────────────────── */
+/* ─── SEO ───────────────────────────────────────────────── */
 function onSeoPlatformChange() {
-  const platform = document.getElementById('seoPlatform').value;
-  const pkg      = state.seoPackages[platform];
+  var p   = document.getElementById('seoPlatform').value;
+  var pkg = state.seoPackages[p];
   if (!pkg) return;
-
-  document.getElementById('seoTitleInput').value = pkg.title   || '';
-  document.getElementById('seoDesc').value        = pkg.description || '';
-  document.getElementById('seoTags').value        = pkg.tags   || '';
-  document.getElementById('seoHashtags').value    = pkg.hashtags || '';
+  document.getElementById('seoTitleInput').value = pkg.title || '';
+  document.getElementById('seoDesc').value       = pkg.description || '';
+  document.getElementById('seoTags').value       = pkg.tags || '';
+  document.getElementById('seoHashtags').value   = pkg.hashtags || '';
 }
-
 function copySeoTitle() {
-  const v = document.getElementById('seoTitleInput').value;
-  if (!v || v === 'Generate a video to see AI-optimized title') { toast('⚠ No title yet.'); return; }
-  navigator.clipboard.writeText(v).then(() => toast('📋 Title copied!'));
+  var v = document.getElementById('seoTitleInput').value;
+  if (!v || v.indexOf('Generate') === 0) { showToast('No title yet.'); return; }
+  navigator.clipboard && navigator.clipboard.writeText(v).then(function() { showToast('Title copied!'); });
 }
-
 function copyAllSeo() {
-  const title  = document.getElementById('seoTitleInput').value;
-  const desc   = document.getElementById('seoDesc').value;
-  const tags   = document.getElementById('seoTags').value;
-  const hashes = document.getElementById('seoHashtags').value;
-  if (!title || title === 'Generate a video to see AI-optimized title') { toast('⚠ Generate a video first.'); return; }
-  const full = `${title}\n\n${desc}\n\nTags: ${tags}\n\n${hashes}`;
-  navigator.clipboard.writeText(full).then(() => toast('📋 Full SEO copied!'));
+  var t = document.getElementById('seoTitleInput').value;
+  if (!t || t.indexOf('Generate') === 0) { showToast('Generate a video first.'); return; }
+  var full = t + '\n\n'
+    + document.getElementById('seoDesc').value + '\n\nTags: '
+    + document.getElementById('seoTags').value + '\n\n'
+    + document.getElementById('seoHashtags').value;
+  navigator.clipboard && navigator.clipboard.writeText(full).then(function() { showToast('SEO copied!'); });
 }
 
-function populateSeo(seoData) {
-  state.seoPackages = seoData;
-  onSeoPlatformChange();
-}
-
-/* ─── LAYOUT / OVERLAY DATA ──────────────────────────────────────── */
+/* ─── LAYOUT / OVERLAYS ─────────────────────────────────── */
 function getLayout() {
-  const ss   = items.find(i => i.kind === 'screenshot');
-  const link = items.find(i => i.kind === 'link');
-  let ss_ox = 0, ss_oy = 0, ss_zoom = 1.0;
-  let link_x = 0.5, link_y = 0.96;
-
+  var ss   = items.find(function(i) { return i.kind === 'screenshot'; });
+  var link = items.find(function(i) { return i.kind === 'link'; });
+  var ss_ox = 0, ss_oy = 0, ss_zoom = 1.0, link_x = 0.5, link_y = 0.96;
   if (ss && ss.img) {
     ss_ox   = (ss.x - PV_W / 2) / PV_W;
     ss_oy   = (ss.y - PV_H / 2) / PV_H;
-    const autoScale = PV_W / ss.img.width;
-    ss_zoom = ss.scale / (autoScale || 1);
+    ss_zoom = ss.scale / (PV_W / ss.img.width || 1);
   }
-  if (link) {
-    link_x = link.x / PV_W;
-    link_y = link.y / PV_H;
-  }
-  return { ss_ox, ss_oy, ss_zoom, link_x, link_y };
+  if (link) { link_x = link.x / PV_W; link_y = link.y / PV_H; }
+  return { ss_ox: ss_ox, ss_oy: ss_oy, ss_zoom: ss_zoom, link_x: link_x, link_y: link_y };
 }
-
 function getOverlays() {
-  return items
-    .filter(i => !['screenshot','link','safe_zone'].includes(i.kind))
-    .map(i => ({
-      kind: i.kind,
-      cx: i.x / PV_W,
-      cy: i.y / PV_H,
-      size: i.scale,
-      rotation: i.rotation,
-      text: i.text || undefined,
-    }));
+  return items.filter(function(i) {
+    return i.kind !== 'screenshot' && i.kind !== 'link' && i.kind !== 'safe_zone';
+  }).map(function(i) {
+    return { kind: i.kind, cx: i.x / PV_W, cy: i.y / PV_H, size: i.scale, rotation: i.rotation, text: i.text || undefined };
+  });
 }
 
-/* ─── HELPER: API BASE ───────────────────────────────────────────── */
+/* ─── HELPERS ───────────────────────────────────────────── */
 function getApiBase() {
   if (state.renderMode === 'cloud') {
-    const u = document.getElementById('cloudApiUrl').value.trim().replace(/\/$/, '');
+    var u = document.getElementById('cloudApiUrl').value.trim().replace(/\/$/, '');
     return u || null;
   }
-  // Local mode — when served from Flask locally this would work, but on GitHub Pages we're static
-  return null; // Demo mode on GitHub Pages
+  return null;
 }
-
-/* ─── HELPER: Parse M:SS ─────────────────────────────────────────── */
-function parseMSS(val, fallback = 0) {
-  if (!val) return fallback;
-  val = val.trim();
-  const parts = val.split(':');
-  if (parts.length === 2) return parseInt(parts[0]) * 60 + parseInt(parts[1]);
-  return parseInt(val) || fallback;
+function parseMSS(v, def) {
+  v = (v || '').trim();
+  var p = v.split(':');
+  if (p.length === 2) return parseInt(p[0]) * 60 + parseInt(p[1]);
+  return parseInt(v) || def;
 }
-
-/* ─── HELPER: LOG ────────────────────────────────────────────────── */
-function log(msg, type = '') {
-  const box = document.getElementById('logBox');
-  const line = document.createElement('div');
-  line.className = 'log-line' + (type ? ` ${type}` : '');
+function addLog(msg, type) {
+  var box  = document.getElementById('logBox');
+  var line = document.createElement('div');
+  line.className   = 'log-line' + (type ? ' ' + type : '');
   line.textContent = msg;
   box.appendChild(line);
   box.scrollTop = box.scrollHeight;
 }
-
-/* ─── HELPER: STATUS ─────────────────────────────────────────────── */
-function setStatus(msg, type = '') {
-  const el = document.getElementById('statusText');
+function setStatus(msg, type) {
+  var el = document.getElementById('statusText');
   el.textContent = msg;
-  el.className = 'dim';
-  if (type === 'ok')   el.style.color = 'var(--green)';
-  else if (type === 'err')  el.style.color = 'var(--red)';
-  else if (type === 'info') el.style.color = 'var(--accent)';
-  else el.style.color = 'var(--fg-dim)';
+  el.style.color = type === 'ok' ? '#00e676' : type === 'err' ? '#ff4f4f' : type === 'info' ? '#00d4ff' : '#6a6a9a';
+}
+function setProgress(v) {
+  document.getElementById('progressBar').style.width = v + '%';
+}
+function fillRoundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.arcTo(x + w, y, x + w, y + r, r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+  ctx.lineTo(x + r, y + h);
+  ctx.arcTo(x, y + h, x, y + h - r, r);
+  ctx.lineTo(x, y + r);
+  ctx.arcTo(x, y, x + r, y, r);
+  ctx.closePath();
 }
 
-/* ─── HELPER: PROGRESS ───────────────────────────────────────────── */
-function setProgress(val) {
-  state.progress = val;
-  document.getElementById('progressBar').style.width = `${val}%`;
-}
-
-/* ─── HELPER: TOAST ──────────────────────────────────────────────── */
-let _toastTimeout = null;
-function toast(msg) {
-  const el = document.getElementById('toast');
+/* ─── TOAST ─────────────────────────────────────────────── */
+var _toastTimer = null;
+function showToast(msg) {
+  var el = document.getElementById('toast');
   el.textContent = msg;
   el.classList.add('show');
-  if (_toastTimeout) clearTimeout(_toastTimeout);
-  _toastTimeout = setTimeout(() => el.classList.remove('show'), 3000);
+  if (_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(function() { el.classList.remove('show'); }, 3000);
 }
 
-/* ─── HELPER: roundRect ──────────────────────────────────────────── */
-function roundRect(ctx, x, y, w, h, r) {
-  if (!ctx.roundRect) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + w - r, y);
-    ctx.arcTo(x + w, y, x + w, y + r, r);
-    ctx.lineTo(x + w, y + h - r);
-    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
-    ctx.lineTo(x + r, y + h);
-    ctx.arcTo(x, y + h, x, y + h - r, r);
-    ctx.lineTo(x, y + r);
-    ctx.arcTo(x, y, x + r, y, r);
-    ctx.closePath();
-  } else {
-    ctx.beginPath();
-    ctx.roundRect(x, y, w, h, r);
-  }
-}
+/* ─── CAPTION PREVIEW ───────────────────────────────────── */
+function updateCaptionPreview() { /* handled automatically by renderLoop */ }
 
-/* ─── MAIN RENDER PATCH (add caption to canvas loop) ────────────── */
-const _origRenderCanvas = renderCanvas;
-function renderCanvas() {
-  animFrameId = null;
-  ctx.clearRect(0, 0, PV_W, PV_H);
+/* ─── FIX INITIAL DISPLAY STATE ────────────────────────── */
+/* Override CSS .hidden with inline styles so there's no conflict */
+(function() {
+  document.getElementById('cloudUrlRow').style.display    = 'none';
+  document.getElementById('directUrlPanel').style.display = 'none';
+  document.getElementById('settingsPanel').style.display  = 'none';
+  document.getElementById('exportBtns').style.display     = 'none';
+})();
 
-  // Background
-  const grad = ctx.createLinearGradient(0, 0, 0, PV_H);
-  grad.addColorStop(0, '#0a0a16');
-  grad.addColorStop(1, '#0d0d1a');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, PV_W, PV_H);
+/* ─── START ANIMATION LOOP ──────────────────────────────── */
+renderLoop();
 
-  // Items
-  for (const item of items) {
-    if (item.kind === 'safe_zone') { drawSafeZone(); continue; }
-    drawItem(item);
-  }
-
-  // Caption preview on top
-  drawCaptionPreview();
-
-  // Selection handles
-  if (selectedItem && selectedItem.kind !== 'safe_zone') {
-    drawHandles(selectedItem);
-  }
-
-  animFrameId = requestAnimationFrame(renderCanvas);
-}
-
-/* ─── INIT ───────────────────────────────────────────────────────── */
-renderCanvas();
-log('AI Video Automation Studio ready.', 'info');
-log('Enter a game name and click SEARCH or GENERATE.', '');
-log('Connect your Cloud API URL in the settings for real rendering.', '');
+/* ─── STARTUP LOG ───────────────────────────────────────── */
+addLog('AI Video Automation Studio ready.', 'info');
+addLog('Enter a game name and click SEARCH or GENERATE.', '');
+addLog('Tip: Select "Cloud" mode and enter your Oracle IP to render real videos.', '');
