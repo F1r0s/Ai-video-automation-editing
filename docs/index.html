@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="AI Video Automation Studio static front-end for GitHub Pages.">
+  <title>AI Video Automation Studio</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b1020;
+      --panel: rgba(14, 20, 41, 0.78);
+      --panel-2: rgba(23, 31, 58, 0.92);
+      --text: #edf2ff;
+      --muted: #9aa6c3;
+      --accent: #64dcff;
+      --accent-2: #8f7cff;
+      --border: rgba(255, 255, 255, 0.12);
+      --good: #4ce0a2;
+      --warn: #ffc971;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: radial-gradient(circle at top, #17213e 0, #0b1020 42%, #070b15 100%); color: var(--text); font-family: Inter, Segoe UI, Arial, sans-serif; }
+    body { padding: 32px 20px 48px; }
+    main { max-width: 1120px; margin: 0 auto; }
+    .hero {
+      background: linear-gradient(180deg, rgba(100, 220, 255, 0.15), rgba(143, 124, 255, 0.08));
+      border: 1px solid var(--border);
+      border-radius: 28px;
+      padding: 36px;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+      backdrop-filter: blur(14px);
+    }
+    .eyebrow { text-transform: uppercase; letter-spacing: 0.24em; font-size: 12px; color: var(--accent); margin-bottom: 14px; }
+    h1 { margin: 0; font-size: clamp(2.4rem, 4vw, 4.6rem); line-height: 0.95; max-width: 11ch; }
+    p { line-height: 1.6; color: var(--muted); }
+    .lead { max-width: 720px; font-size: 1.05rem; margin: 20px 0 0; }
+    .chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+    .chip {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 9px 14px;
+      background: rgba(255,255,255,0.04);
+      color: var(--text);
+      font-size: 14px;
+    }
+    .layout { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 18px; margin-top: 18px; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      padding: 22px;
+      box-shadow: 0 18px 40px rgba(0,0,0,0.22);
+    }
+    .card h2 { margin: 0 0 12px; font-size: 1.05rem; }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: rgba(76, 224, 162, 0.12);
+      color: var(--good);
+      border: 1px solid rgba(76, 224, 162, 0.22);
+      font-size: 14px;
+    }
+    .status::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 6px rgba(76, 224, 162, 0.12); }
+    ul { margin: 12px 0 0 18px; color: var(--muted); line-height: 1.8; }
+    code { background: rgba(255,255,255,0.08); border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; color: #dce7ff; }
+    .note { margin-top: 14px; padding: 14px 16px; border-left: 3px solid var(--warn); background: rgba(255, 201, 113, 0.08); border-radius: 14px; color: #f3d9aa; }
+    .grid-2 { display: grid; gap: 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .footer { margin-top: 18px; color: var(--muted); font-size: 14px; }
+
+    @media (max-width: 860px) {
+      body { padding: 18px 14px 32px; }
+      .hero { padding: 24px; border-radius: 22px; }
+      .layout, .grid-2 { grid-template-columns: 1fr; }
+      h1 { max-width: none; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="hero">
+      <div class="eyebrow">GitHub Pages front-end</div>
+      <h1>AI Video Automation Studio</h1>
+      <p class="lead">This static site is the public entry point for the app. Device-side scraping can run from the user’s own machine when needed, while rendering and heavy processing stay on Oracle Cloud.</p>
+      <div class="chips">
+        <span class="chip">Static Pages host</span>
+        <span class="chip">Local-device scraping</span>
+        <span class="chip">Oracle Cloud rendering</span>
+        <span class="chip">No Python runtime here</span>
+      </div>
+    </section>
+
+    <section class="layout">
+      <div class="card">
+        <h2>How this deployment works</h2>
+        <ul>
+          <li>GitHub Pages serves this HTML page and any other static assets.</li>
+          <li>The scraping step should run on the user’s own device if you want that device IP.</li>
+          <li>Oracle Cloud keeps the video rendering, downloading, and upload pipeline.</li>
+          <li>Future client-side UI can call your Oracle API for status and render jobs only.</li>
+        </ul>
+        <div class="note">This scaffold intentionally avoids backend code, secrets, runtime folders, and generated media.</div>
+      </div>
+
+      <div class="card">
+        <h2>Pages readiness</h2>
+        <div class="status">Static site ready to publish</div>
+        <ul>
+          <li>Root page included</li>
+          <li>Jekyll bypass supported via <code>.nojekyll</code></li>
+          <li>404 fallback included</li>
+          <li>Safe for branch or docs-folder publishing</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="card" style="margin-top:18px;">
+      <h2>Next implementation slice</h2>
+      <div class="grid-2">
+        <div>
+          <p><strong>Client UI:</strong> add a form for the friend’s local test path and a separate render button that points to Oracle Cloud.</p>
+        </div>
+        <div>
+          <p><strong>Backend hook:</strong> keep the render API on Oracle and expose only the minimum endpoints needed by the Pages UI.</p>
+        </div>
+      </div>
+    </section>
+
+    <p class="footer">Published root should contain <code>index.html</code>, <code>404.html</code>, and <code>.nojekyll</code>.</p>
+  </main>
+</body>
+</html>
