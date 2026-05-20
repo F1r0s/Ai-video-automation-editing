@@ -179,12 +179,30 @@ def serve_output(filename):
         return send_from_directory(str(cfg.RAW_DIR), filename)
     return "Not Found", 404
 
+def check_auth():
+    api_secret = os.getenv("API_SECRET_KEY")
+    if not api_secret:
+        return True
+    
+    # Check headers or form
+    auth_header = request.headers.get("X-API-Key")
+    form_key = request.form.get("api_secret_key")
+    
+    if auth_header == api_secret or form_key == api_secret:
+        return True
+    return False
+
 @app.route('/api/verify', methods=['POST'])
 def verify_pwd():
+    if not check_auth():
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
     return jsonify({"success": True})
 
 @app.route('/api/generate', methods=['POST'])
 def generate():
+    if not check_auth():
+        return jsonify({"error": "Unauthorized: Invalid API secret key."}), 401
+
     # Reset status
     update_status("Starting pipeline...")
 
@@ -317,6 +335,9 @@ def cloud_process():
     Receives raw video, processes it with AI, and sends to Telegram.
     Supports both legacy and reward-first modes.
     """
+    if not check_auth():
+        return jsonify({"error": "Unauthorized: Invalid API secret key."}), 401
+
     game = request.form.get('game', '').strip()
     url = request.form.get('url', '').strip()
     overlays_json = request.form.get('overlays', '[]')
@@ -429,7 +450,7 @@ if __name__ == '__main__':
     import time
 
     def run_server():
-        # Listen on 0.0.0.0 to allow connections from your local PC to Oracle Cloud
+        # Listen on 0.0.0.0 to allow connections to the web service
         app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
         
     t = threading.Thread(target=run_server)

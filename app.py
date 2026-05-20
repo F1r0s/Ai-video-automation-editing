@@ -1744,10 +1744,15 @@ class VideoAutomationApp:
                                 files['manual_recording'] = (Path(recording_path).name, fh_rec, 'video/mp4')
 
                             self.root.after(0, self._log, f"  ⬆ Upload attempt {attempt}/{max_retries}...")
+                            headers = {}
+                            cloud_secret = os.getenv("CLOUD_API_SECRET_KEY", "").strip()
+                            if cloud_secret:
+                                headers["X-API-Key"] = cloud_secret
                             resp = session.post(
                                 f"{cloud_url}/api/cloud_process",
                                 data=data,
                                 files=files,
+                                headers=headers,
                                 timeout=(300, 3600),  # 300s connect, 1hr read
                             )
                             last_error = None

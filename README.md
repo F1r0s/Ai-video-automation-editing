@@ -108,12 +108,12 @@ This will open the visual **AI Video Automation Studio** window on your desktop.
 
 ---
 
-## Local Scrape to Cloud Mode
+## Hugging Face Cloud Rendering Mode
 
-If you want scraping to use the device that runs the app, use the local bridge script. It downloads the source video on that machine, then sends the file to Oracle Cloud for rendering.
+If you want scraping to use the device that runs the app, use the local bridge script. It downloads the source video on that machine, then sends the file to your Hugging Face Space for rendering.
 
 ```bash
-python local_scrape_to_cloud.py "One State RP" --landing-url "https://example.com" --backend-url "https://your-oracle-host:5000"
+python local_scrape_to_cloud.py "One State RP" --landing-url "https://example.com" --backend-url "https://your-username-space-name.hf.space"
 ```
 
-You can also set `CLOUD_API_URL` in your `.env` file and omit `--backend-url`.
+You can also set `CLOUD_API_URL` in your `.env` file and omit `--backend-url`. For detailed setup instructions, see the [Hugging Face Deployment Guide](HUGGINGFACE_DEPLOYMENT.md).

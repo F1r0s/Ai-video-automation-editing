@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Fix ImageMagick policy to allow editing/reading text and PDFs (needed by MoviePy TextClip)
-RUN sed -i 's/<policy domain="path" rights="none" pattern="@\*"/<!-- <policy domain="path" rights="none" pattern="@\*" -->/g' /etc/ImageMagick-6/policy.xml || true
+RUN sed -i 's/<policy domain="path" rights="none" pattern="@\*"/<!-- <policy domain="path" rights="none" pattern="@\*" -->/g' /etc/ImageMagick-6/policy.xml /etc/ImageMagick-7/policy.xml /etc/ImageMagick/policy.xml || true
 
 # Create app directory
 WORKDIR /app
@@ -20,6 +20,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy all files to container
 COPY . .
+
+# Create necessary directories and ensure they are writable by Hugging Face user (UID 1000)
+RUN mkdir -p downloads/raw downloads/edited uploads secrets assets \
+    && chmod -R 777 downloads uploads secrets assets /app
 
 # Set environment variables for Flask
 ENV PYTHONUNBUFFERED=1
