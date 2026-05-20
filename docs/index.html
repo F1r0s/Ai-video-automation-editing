@@ -1,247 +1,365 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="AI Video Automation Studio static front-end for GitHub Pages.">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AI Video Automation Studio</title>
-  <style>
-    :root {
-      color-scheme: dark;
-      --bg: #0b1020;
-      --panel: rgba(14, 20, 41, 0.78);
-      --panel-2: rgba(23, 31, 58, 0.92);
-      --text: #edf2ff;
-      --muted: #9aa6c3;
-      --accent: #64dcff;
-      --accent-2: #8f7cff;
-      --border: rgba(255, 255, 255, 0.12);
-      --good: #4ce0a2;
-      --warn: #ffc971;
-    }
-
-    * { box-sizing: border-box; }
-    html, body { margin: 0; min-height: 100%; background: radial-gradient(circle at top, #17213e 0, #0b1020 42%, #070b15 100%); color: var(--text); font-family: Inter, Segoe UI, Arial, sans-serif; }
-    body { padding: 32px 20px 48px; }
-    main { max-width: 1120px; margin: 0 auto; }
-    .hero {
-      background: linear-gradient(180deg, rgba(100, 220, 255, 0.15), rgba(143, 124, 255, 0.08));
-      border: 1px solid var(--border);
-      border-radius: 28px;
-      padding: 36px;
-      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
-      backdrop-filter: blur(14px);
-    }
-    .eyebrow { text-transform: uppercase; letter-spacing: 0.24em; font-size: 12px; color: var(--accent); margin-bottom: 14px; }
-    h1 { margin: 0; font-size: clamp(2.4rem, 4vw, 4.6rem); line-height: 0.95; max-width: 11ch; }
-    p { line-height: 1.6; color: var(--muted); }
-    .lead { max-width: 720px; font-size: 1.05rem; margin: 20px 0 0; }
-    .chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
-    .chip {
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      padding: 9px 14px;
-      background: rgba(255,255,255,0.04);
-      color: var(--text);
-      font-size: 14px;
-    }
-    .layout { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 18px; margin-top: 18px; }
-    .card {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 22px;
-      padding: 22px;
-      box-shadow: 0 18px 40px rgba(0,0,0,0.22);
-    }
-    .card h2 { margin: 0 0 12px; font-size: 1.05rem; }
-    .status {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      border-radius: 999px;
-      padding: 8px 12px;
-      background: rgba(76, 224, 162, 0.12);
-      color: var(--good);
-      border: 1px solid rgba(76, 224, 162, 0.22);
-      font-size: 14px;
-    }
-    .status::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 6px rgba(76, 224, 162, 0.12); }
-    ul { margin: 12px 0 0 18px; color: var(--muted); line-height: 1.8; }
-    code { background: rgba(255,255,255,0.08); border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; color: #dce7ff; }
-    .note { margin-top: 14px; padding: 14px 16px; border-left: 3px solid var(--warn); background: rgba(255, 201, 113, 0.08); border-radius: 14px; color: #f3d9aa; }
-    .grid-2 { display: grid; gap: 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .footer { margin-top: 18px; color: var(--muted); font-size: 14px; }
-    .field-grid { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .field { display: grid; gap: 7px; }
-    .field.full { grid-column: 1 / -1; }
-    label { font-size: 13px; letter-spacing: 0.02em; color: #d8e4ff; }
-    input, select, textarea, button {
-      font: inherit;
-      color: var(--text);
-    }
-    input, select, textarea {
-      width: 100%;
-      border-radius: 14px;
-      border: 1px solid var(--border);
-      background: rgba(255,255,255,0.05);
-      padding: 12px 14px;
-      outline: none;
-    }
-    textarea { min-height: 104px; resize: vertical; }
-    input:focus, select:focus, textarea:focus { border-color: rgba(100, 220, 255, 0.65); box-shadow: 0 0 0 3px rgba(100, 220, 255, 0.14); }
-    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 14px; }
-    button {
-      border: 0;
-      border-radius: 999px;
-      padding: 12px 18px;
-      background: linear-gradient(135deg, var(--accent), var(--accent-2));
-      color: #08111f;
-      font-weight: 700;
-      cursor: pointer;
-    }
-    button.secondary {
-      background: rgba(255,255,255,0.07);
-      color: var(--text);
-      border: 1px solid var(--border);
-    }
-    .muted-box {
-      margin-top: 12px;
-      padding: 12px 14px;
-      border-radius: 14px;
-      background: rgba(255,255,255,0.04);
-      color: var(--muted);
-      font-size: 14px;
-    }
-    .output {
-      margin-top: 14px;
-      display: grid;
-      gap: 10px;
-      font-size: 14px;
-    }
-    .output code { word-break: break-all; }
-
-    @media (max-width: 860px) {
-      body { padding: 18px 14px 32px; }
-      .hero { padding: 24px; border-radius: 22px; }
-      .layout, .grid-2, .field-grid { grid-template-columns: 1fr; }
-      h1 { max-width: none; }
-    }
-  </style>
+  <meta name="description" content="AI-powered vertical promo video generator for YouTube Shorts, TikTok & Instagram Reels. Generate, edit and export in seconds." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <main>
-    <section class="hero">
-      <div class="eyebrow">GitHub Pages front-end</div>
-      <h1>AI Video Automation Studio</h1>
-      <p class="lead">This static site is the public entry point for the app. Device-side scraping can run from the user’s own machine when needed, while rendering and heavy processing stay on Oracle Cloud.</p>
-      <div class="chips">
-        <span class="chip">Static Pages host</span>
-        <span class="chip">Local-device scraping</span>
-        <span class="chip">Oracle Cloud rendering</span>
-        <span class="chip">No Python runtime here</span>
+  <!-- ─── HEADER ───────────────────────────────────────────────── -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">🎬</span>
+        <div>
+          <div class="logo-title">AI VIDEO</div>
+          <div class="logo-sub">Automation Studio</div>
+        </div>
       </div>
-    </section>
+      <div class="header-badge">☁️ Cloud Rendering Active</div>
+    </div>
+  </header>
 
-    <section class="layout">
+  <!-- ─── MAIN LAYOUT ──────────────────────────────────────────── -->
+  <main class="layout">
+
+    <!-- ══════════════ LEFT PANEL ══════════════ -->
+    <aside class="left-panel" id="leftPanel">
+
+      <!-- Step 1: Game Name -->
+      <div class="card step-card">
+        <div class="step-label">1</div>
+        <div class="step-content">
+          <label class="field-label" for="gameName">Game Name</label>
+          <input type="text" id="gameName" class="input" placeholder="e.g. Free Fire, GTA V..." autocomplete="off" />
+        </div>
+      </div>
+
+      <!-- Step 2: Max Results -->
+      <div class="card step-card">
+        <div class="step-label">2</div>
+        <div class="step-content">
+          <label class="field-label" for="maxVideos">Max Search Results</label>
+          <div class="spinner-row">
+            <button class="spinner-btn" onclick="changeMax(-1)" id="maxMinus">−</button>
+            <span class="spinner-val" id="maxVal">5</span>
+            <button class="spinner-btn" onclick="changeMax(1)" id="maxPlus">+</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 3: Screenshot -->
+      <div class="card step-card">
+        <div class="step-label">3</div>
+        <div class="step-content">
+          <label class="field-label">Channel Screenshot</label>
+          <div class="file-row">
+            <span class="file-name" id="ssName">No file chosen</span>
+            <label class="btn btn-accent" for="ssInput">Choose…</label>
+            <input type="file" id="ssInput" accept="image/*" style="display:none" onchange="onScreenshot(this)" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 4: CPA Link -->
+      <div class="card step-card">
+        <div class="step-label">4</div>
+        <div class="step-content">
+          <label class="field-label" for="landingUrl">CPA Landing Page Link</label>
+          <input type="url" id="landingUrl" class="input" placeholder="https://your-link.com" oninput="onLinkChange()" />
+        </div>
+      </div>
+
+      <!-- Step 5: Screen Recording -->
+      <div class="card step-card">
+        <div class="step-label">5</div>
+        <div class="step-content">
+          <label class="field-label">Screen Recording (Walkthrough)</label>
+          <div class="file-row">
+            <span class="file-name" id="recName">No file chosen</span>
+            <label class="btn btn-accent" for="recInput">Choose…</label>
+            <input type="file" id="recInput" accept="video/*" style="display:none" onchange="onRecording(this)" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 6: Custom Script -->
+      <div class="card step-card">
+        <div class="step-label">6</div>
+        <div class="step-content">
+          <label class="field-label" for="customScript">Custom Walkthrough Script <span class="dim">(Optional)</span></label>
+          <input type="text" id="customScript" class="input" placeholder="Leave blank for AI-generated script" />
+        </div>
+      </div>
+
+      <!-- Caption Settings -->
       <div class="card">
-        <h2>How this deployment works</h2>
-        <ul>
-          <li>GitHub Pages serves this HTML page and any other static assets.</li>
-          <li>The scraping step should run on the user’s own device if you want that device IP.</li>
-          <li>Oracle Cloud keeps the video rendering, downloading, and upload pipeline.</li>
-          <li>Future client-side UI can call your Oracle API for status and render jobs only.</li>
-        </ul>
-        <div class="note">This scaffold intentionally avoids backend code, secrets, runtime folders, and generated media.</div>
+        <div class="card-header">🎨 Caption Settings</div>
+        <div class="settings-row">
+          <div class="field-group">
+            <label class="field-label">Caption Color</label>
+            <select class="select" id="captionColor" onchange="updateCaptionPreview()">
+              <option value="yellow" selected>🟡 Yellow</option>
+              <option value="white">⚪ White</option>
+              <option value="green">🟢 Green</option>
+              <option value="cyan">🔵 Cyan</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label class="field-label">Position</label>
+            <select class="select" id="captionPos" onchange="updateCaptionPreview()">
+              <option value="0.58" selected>📍 Safe Zone Center (Default)</option>
+              <option value="0.62">📍 Slightly Lower</option>
+              <option value="0.50">📍 Higher</option>
+              <option value="0.78">📍 Very Bottom</option>
+            </select>
+          </div>
+        </div>
       </div>
 
+      <!-- Link Color & Font -->
       <div class="card">
-        <h2>Pages readiness</h2>
-        <div class="status">Static site ready to publish</div>
-        <ul>
-          <li>Root page included</li>
-          <li>Jekyll bypass supported via <code>.nojekyll</code></li>
-          <li>404 fallback included</li>
-          <li>Safe for branch or docs-folder publishing</li>
-        </ul>
+        <div class="card-header">🔗 Link Style</div>
+        <div class="settings-row">
+          <div class="field-group">
+            <label class="field-label">Link Color</label>
+            <div class="color-row">
+              <input type="color" id="linkColorPicker" value="#64dcff" oninput="onLinkColorChange()" class="color-swatch" />
+              <input type="text" id="linkColorHex" class="input input-sm" value="#64dcff" oninput="onLinkHexChange()" maxlength="7" />
+            </div>
+          </div>
+          <div class="field-group">
+            <label class="field-label">Font</label>
+            <select class="select" id="linkFont" onchange="updateCaptionPreview()">
+              <option value="Montserrat-Bold" selected>Montserrat Bold</option>
+              <option value="Arial-Bold">Arial Bold</option>
+              <option value="Impact">Impact</option>
+              <option value="Verdana-Bold">Verdana Bold</option>
+              <option value="Courier-Bold">Courier Bold</option>
+              <option value="Comic-Bold">Comic Bold</option>
+              <option value="Roboto-Bold">Roboto Bold</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cloud / Local Rendering -->
+      <div class="card">
+        <div class="card-header" style="color:var(--green)">☁️ CLOUD RENDERING ACTIVE</div>
+        <div class="radio-group">
+          <label class="radio-label">
+            <input type="radio" name="renderMode" value="local" id="renderLocal" checked onchange="onRenderModeChange()" />
+            <span class="radio-custom"></span> Rendering on Local PC
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="renderMode" value="cloud" id="renderCloud" onchange="onRenderModeChange()" />
+            <span class="radio-custom"></span> Rendering in the Cloud
+          </label>
+        </div>
+        <!-- Cloud API URL (shown only in cloud mode) -->
+        <div id="cloudUrlRow" class="cloud-url-row hidden">
+          <label class="field-label" for="cloudApiUrl">Cloud API URL</label>
+          <input type="url" id="cloudApiUrl" class="input" placeholder="http://your-server-ip:5000" />
+        </div>
+      </div>
+
+      <!-- Settings (collapsible) -->
+      <div class="card">
+        <button class="toggle-btn" onclick="toggleSettings()" id="settingsToggle">☰ Settings</button>
+        <div id="settingsPanel" class="collapsible hidden">
+          <div class="field-group" style="margin-top:12px">
+            <label class="field-label">Export Quality</label>
+            <div class="radio-group horizontal">
+              <label class="radio-label">
+                <input type="radio" name="quality" value="1080" checked /> <span class="radio-custom"></span> 1080p
+              </label>
+              <label class="radio-label">
+                <input type="radio" name="quality" value="720" /> <span class="radio-custom"></span> 720p
+              </label>
+            </div>
+          </div>
+          <div class="divider"></div>
+          <label class="checkbox-label">
+            <input type="checkbox" id="sfxEnabled" checked />
+            <span class="checkbox-custom"></span>
+            🔊 Auto Sound Effects (swoosh, cash register)
+          </label>
+        </div>
+      </div>
+
+      <!-- Source Mode -->
+      <div class="card">
+        <div class="card-header">📥 Video Source Mode</div>
+        <div class="radio-group">
+          <label class="radio-label">
+            <input type="radio" name="sourceMode" value="search" id="modeSearch" checked onchange="onSourceModeChange()" />
+            <span class="radio-custom"></span> 🔍 Search by Game Name (Auto-find videos)
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="sourceMode" value="url" id="modeUrl" onchange="onSourceModeChange()" />
+            <span class="radio-custom"></span> 🔗 Paste Direct URL (YouTube / TikTok / Instagram)
+          </label>
+        </div>
+      </div>
+
+      <!-- Direct URL Panel -->
+      <div class="card hidden" id="directUrlPanel">
+        <div class="card-header">🔗 Paste Video URL</div>
+        <p class="dim" style="font-size:12px;margin:4px 0 10px">Paste a YouTube, TikTok, or Instagram video link below.</p>
+        <div class="paste-row">
+          <input type="url" id="directUrl" class="input" placeholder="https://..." style="flex:1" />
+          <button class="btn btn-sm btn-ghost" onclick="pasteUrl()">📋 Paste</button>
+        </div>
+        <div class="trim-row">
+          <span class="dim small">⏱ Hook from:</span>
+          <input type="text" id="hookStart" class="input input-tiny" value="0:00" placeholder="M:SS" />
+          <span class="dim small">to:</span>
+          <input type="text" id="hookEnd" class="input input-tiny" value="0:10" placeholder="M:SS" />
+          <span class="dim" style="font-size:11px">(M:SS)</span>
+        </div>
+      </div>
+
+      <!-- Search Results -->
+      <div class="card" id="searchCard">
+        <div class="search-header">
+          <span class="field-label" style="margin:0">Search Results</span>
+          <button class="btn btn-accent btn-sm" id="searchBtn" onclick="onSearch()">🔍 SEARCH</button>
+        </div>
+        <!-- Ratio Filter & Trim -->
+        <div class="filter-row">
+          <label class="dim small">Format:</label>
+          <select class="select select-sm" id="ratioFilter">
+            <option value="Both">Both</option>
+            <option value="9:16">9:16 only</option>
+            <option value="16:9">16:9 only</option>
+          </select>
+          <label class="dim small" style="margin-left:12px">⏱ Hook from:</label>
+          <input type="text" id="hookStartSearch" class="input input-tiny" value="0:00" placeholder="M:SS" />
+          <span class="dim small">to:</span>
+          <input type="text" id="hookEndSearch" class="input input-tiny" value="0:10" placeholder="M:SS" />
+        </div>
+        <!-- Results List -->
+        <div class="results-list" id="resultsList">
+          <div class="results-placeholder">Enter a game name and click SEARCH</div>
+        </div>
+        <div class="url-btn-row">
+          <button class="btn btn-ghost btn-sm" onclick="openSelectedInBrowser()">🔗 Open Selected Video in Browser</button>
+          <span class="dim" style="font-size:11px">(or double-click a result)</span>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="action-bar">
+        <button class="btn btn-generate" id="generateBtn" onclick="onGenerate()">▶ GENERATE</button>
+        <button class="btn btn-pause" id="pauseBtn" onclick="onPause()" disabled>⏸ PAUSE</button>
+        <button class="btn btn-cancel" id="cancelBtn" onclick="onCancel()" disabled>✕</button>
+      </div>
+
+      <!-- Status & Progress -->
+      <div class="status-row">
+        <span id="statusText" class="dim">Ready</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-bar" id="progressBar" style="width:0%"></div>
+      </div>
+
+      <!-- Log Box -->
+      <div class="log-box" id="logBox"></div>
+
+      <!-- Rendered Output -->
+      <div class="card output-card" id="outputCard">
+        <div class="card-header" style="color:var(--accent)">🎬 Rendered Output</div>
+        <div id="outputThumb" class="output-thumb">
+          <span class="dim">🎬 No output yet</span>
+        </div>
+        <div class="export-btns hidden" id="exportBtns">
+          <button class="btn btn-purple" onclick="doExport('1080')">⬇ Export 1080p</button>
+          <button class="btn btn-ghost" onclick="doExport('720')">⬇ Export 720p</button>
+          <button class="btn btn-ghost" onclick="openOutputFolder()">📂 Open Folder</button>
+        </div>
+      </div>
+
+      <!-- SEO Panel: Title -->
+      <div class="card seo-card">
+        <div class="seo-header">
+          <span class="seo-title-label">📌 VIDEO TITLE</span>
+          <div class="seo-controls">
+            <select class="select select-sm" id="seoPlatform" onchange="onSeoPlatformChange()">
+              <option value="youtube">YouTube</option>
+              <option value="tiktok">TikTok</option>
+              <option value="instagram">Instagram</option>
+              <option value="facebook">Facebook</option>
+              <option value="x">X (Twitter)</option>
+            </select>
+            <button class="btn btn-purple btn-sm" onclick="copySeoTitle()">📋 Copy</button>
+          </div>
+        </div>
+        <input type="text" id="seoTitleInput" class="input seo-input" readonly value="Generate a video to see AI-optimized title" />
+      </div>
+
+      <!-- SEO Panel: Description & Tags -->
+      <div class="card seo-card">
+        <div class="seo-header">
+          <span class="seo-title-label">📝 DESCRIPTION &amp; TAGS</span>
+          <button class="btn btn-purple btn-sm" onclick="copyAllSeo()">📋 Copy All</button>
+        </div>
+        <textarea id="seoDesc" class="log-box seo-textarea" readonly placeholder="Generate a video to see AI-optimized description" rows="4"></textarea>
+        <label class="dim small" style="margin-top:8px;display:block">Tags:</label>
+        <input type="text" id="seoTags" class="input seo-input" readonly placeholder="tags will appear here..." style="color:var(--orange)" />
+        <label class="dim small" style="margin-top:6px;display:block">Hashtags:</label>
+        <input type="text" id="seoHashtags" class="input seo-input" readonly placeholder="#hashtags will appear here..." style="color:var(--green)" />
+      </div>
+
+    </aside>
+
+    <!-- ══════════════ RIGHT PANEL: PREVIEW EDITOR ══════════════ -->
+    <section class="right-panel">
+      <div class="preview-header">
+        <div class="preview-title">PREVIEW EDITOR</div>
+        <div class="dim small">Drag elements to move · Drag corners to resize</div>
+      </div>
+
+      <!-- Canvas Container -->
+      <div class="canvas-wrap" id="canvasWrap">
+        <canvas id="previewCanvas" width="300" height="534"></canvas>
+        <div class="canvas-placeholder" id="canvasPlaceholder">
+          <span>Choose a screenshot<br/>to see preview</span>
+        </div>
+      </div>
+
+      <!-- Sticker Toolbar -->
+      <div class="stickers-header">Add Stickers:</div>
+      <div class="dim small" style="margin-bottom:6px;text-align:center">(placed at top of frame — drag to reposition)</div>
+      <div class="sticker-bar" id="stickerBar">
+        <button class="btn btn-sticker" onclick="addSticker('circle')">○ Circle</button>
+        <button class="btn btn-sticker" onclick="addSticker('arrow')">▼ Arrow</button>
+        <button class="btn btn-sticker" onclick="addSticker('finger')">☝ Finger</button>
+        <button class="btn btn-sticker" onclick="addSticker('cartoon')">★ Cartoon</button>
+      </div>
+      <div class="text-sticker-bar">
+        <button class="btn btn-text-sticker" onclick="addTextSticker('Click Here!')">Click Here!</button>
+        <button class="btn btn-text-sticker" onclick="addTextSticker('Download!')">Download!</button>
+        <button class="btn btn-text-sticker" onclick="addTextSticker('Subscribe!')">Subscribe!</button>
+        <button class="btn btn-text-sticker" onclick="addTextSticker('Link Here ↓')">Link Here ↓</button>
+        <button class="btn btn-text-sticker" onclick="addTextSticker('FREE!')">FREE!</button>
+      </div>
+      <div class="action-toolbar">
+        <button class="btn btn-sm btn-danger" onclick="deleteSelected()">Delete Selected</button>
+        <button class="btn btn-sm btn-dark" onclick="toggleSafeZone()">Toggle Safe Zone</button>
+        <button class="btn btn-sm btn-dim" onclick="clearStickers()">Clear All Stickers</button>
       </div>
     </section>
 
-    <section class="card" style="margin-top:18px;">
-      <h2>Render control panel</h2>
-      <p>Point this form at your Oracle Cloud Flask URL, then use it to check status or start a render job. Scraping should still happen on the user’s own device if you need their IP.</p>
-
-      <div class="field-grid">
-        <div class="field full">
-          <label for="backendUrl">Oracle backend URL</label>
-          <input id="backendUrl" type="url" placeholder="https://your-oracle-host:5000">
-        </div>
-        <div class="field">
-          <label for="game">Game name</label>
-          <input id="game" type="text" placeholder="One State RP">
-        </div>
-        <div class="field">
-          <label for="url">Landing URL</label>
-          <input id="url" type="url" placeholder="https://example.com">
-        </div>
-        <div class="field">
-          <label for="max">Max videos</label>
-          <input id="max" type="number" min="1" max="20" value="3">
-        </div>
-        <div class="field">
-          <label for="caption_color">Caption color</label>
-          <input id="caption_color" type="text" value="yellow">
-        </div>
-        <div class="field">
-          <label for="caption_pos">Caption position</label>
-          <input id="caption_pos" type="number" step="0.01" min="0" max="1" value="0.58">
-        </div>
-        <div class="field">
-          <label for="landing_link_color">Landing link color</label>
-          <input id="landing_link_color" type="text" value="#64dcff">
-        </div>
-        <div class="field">
-          <label for="link_font">Link font</label>
-          <input id="link_font" type="text" value="Montserrat-Bold">
-        </div>
-        <div class="field">
-          <label for="elevenlabs_key">ElevenLabs API key</label>
-          <input id="elevenlabs_key" type="password" placeholder="Optional for local testing">
-        </div>
-        <div class="field">
-          <label for="elevenlabs_voice_id">Voice ID</label>
-          <input id="elevenlabs_voice_id" type="text" placeholder="pqHfZKP75CvOlQylNhV4">
-        </div>
-        <div class="field full">
-          <label for="screenshot">Screenshot file</label>
-          <input id="screenshot" type="file" accept="image/*" required>
-        </div>
-        <div class="field full">
-          <label for="overlays">Overlays JSON</label>
-          <textarea id="overlays">[]</textarea>
-        </div>
-        <div class="field full">
-          <label for="layout">Layout JSON</label>
-          <textarea id="layout">{}</textarea>
-        </div>
-      </div>
-
-      <div class="actions">
-        <button id="saveSettings" type="button" class="secondary">Save settings</button>
-        <button id="checkStatus" type="button" class="secondary">Check status</button>
-        <button id="generate" type="button">Send render job</button>
-      </div>
-
-      <div class="muted-box" id="helpText">The Oracle backend must allow this Pages origin. If status checks fail, verify the backend URL and CORS settings first.</div>
-
-      <div class="output" id="output">
-        <div><strong>Status:</strong> <span id="statusText">Idle</span></div>
-        <div><strong>Response:</strong> <code id="responseText">No request sent yet.</code></div>
-        <div><strong>Video URL:</strong> <code id="videoUrlText">-</code></div>
-      </div>
-    </section>
-
-    <p class="footer">Published root should contain <code>index.html</code>, <code>404.html</code>, and <code>.nojekyll</code>.</p>
   </main>
-  <script src="./app.js"></script>
+
+  <!-- ─── TOAST NOTIFICATION ───────────────────────────────────── -->
+  <div class="toast" id="toast"></div>
+
+  <script src="app.js"></script>
 </body>
 </html>
