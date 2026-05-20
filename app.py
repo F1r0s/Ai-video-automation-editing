@@ -1745,7 +1745,8 @@ class VideoAutomationApp:
 
                             self.root.after(0, self._log, f"  ⬆ Upload attempt {attempt}/{max_retries}...")
                             headers = {}
-                            cloud_secret = os.getenv("CLOUD_API_SECRET_KEY", "").strip()
+                            cloud_secret = os.getenv("CLOUD_API_SECRET_KEY") or os.getenv("API_SECRET_KEY", "")
+                            cloud_secret = cloud_secret.strip()
                             if cloud_secret:
                                 headers["X-API-Key"] = cloud_secret
                             resp = session.post(
