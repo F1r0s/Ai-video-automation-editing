@@ -576,7 +576,7 @@ class CanvasEditor:
 
     def get_overlays(self):
         ov = []
-        stickers = [i for i in self.items if i.kind not in ("screenshot", "link", "safe_zone")]
+        stickers = [i for i in self.items if i.kind not in ("screenshot", "link", "safe_zone") and i.kind != "finger"]
         for s in stickers:
             d = {"kind": s.kind, "cx": s.x/PV_W, "cy": s.y/PV_H, "size": s.scale, "rotation": getattr(s, "rotation", 0)}
             if s.text: d["text"] = s.text
@@ -966,7 +966,7 @@ class VideoAutomationApp:
         tk.Label(right, text="(placed at top of frame — drag to reposition)",
                  font=("Segoe UI",8), fg=FG_DIM, bg=BG).pack(pady=(0,2))
         tb1 = tk.Frame(right, bg=BG); tb1.pack(pady=2)
-        for txt, kind in [("O Circle", "circle"), ("\u25bc Arrow", "arrow"), ("\u261d Finger", "finger"), ("★ Cartoon", "cartoon")]:
+        for txt, kind in [("O Circle", "circle"), ("\u25bc Arrow", "arrow"), ("★ Cartoon", "cartoon")]:
             tk.Button(tb1, text=txt, font=("Segoe UI",9,"bold"), fg="#fff", bg="#e53935",
                       relief="flat", padx=8, pady=2,
                       command=lambda k=kind: self.editor.add_item(k, PV_W//2, int(PV_H * 0.12))

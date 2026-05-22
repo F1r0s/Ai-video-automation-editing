@@ -557,8 +557,14 @@ class VideoProcessor:
         ss_px = ss_py = 0
         if has_screenshot:
             ss_img = Image.open(screenshot_path).convert("RGBA")
-            # In GUI, auto_scale fits width to canvas. ss_zoom is relative to that.
-            base_scale = TARGET_W / ss_img.width
+            # Match the auto_scale logic in GUI (app.py) using the preview canvas dimensions
+            pv_w, pv_h = 300, 534
+            pv_auto_scale = pv_w / ss_img.width
+            if ss_img.height * pv_auto_scale > pv_h + 200:
+                pv_auto_scale = (pv_h + 200) / ss_img.height
+            # Convert to target coordinates (1080x1920)
+            base_scale = pv_auto_scale * (TARGET_W / pv_w)
+            
             final_scale = base_scale * ss_zoom
             nw, nh = int(ss_img.width * final_scale), int(ss_img.height * final_scale)
             ss_img = ss_img.resize((nw, nh), Image.LANCZOS)
@@ -624,18 +630,9 @@ class VideoProcessor:
                     paste_y = ay - scaled_arrow.height // 2
                     bg.paste(scaled_arrow, (paste_x, paste_y), scaled_arrow)
 
-                elif item["kind"] == "finger" and "finger" in self.sticker_cache:
-                    # Render finger asset with bounce animation
-                    finger_img = self._sticker_frame(self.sticker_cache["finger"], t)
-                    fy = cy + bounce
-                    scaled_sz = int(300 * sz)
-                    scaled_finger = finger_img.resize((scaled_sz, scaled_sz), Image.LANCZOS)
-                    rot = item.get("rotation", 0)
-                    if rot != 0:
-                        scaled_finger = scaled_finger.rotate(-rot, expand=True, resample=Image.BICUBIC)
-                    paste_x = cx - scaled_finger.width // 2
-                    paste_y = fy - scaled_finger.height // 2
-                    bg.paste(scaled_finger, (paste_x, paste_y), scaled_finger)
+                elif item["kind"] == "finger":
+                    # Skip rendering pointing finger sticker
+                    pass
 
                 elif item["kind"] == "cartoon" and "cartoon" in self.sticker_cache:
                     # Render cartoon asset with pulse animation
