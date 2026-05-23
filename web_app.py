@@ -429,6 +429,47 @@ def cloud_process():
         return jsonify({"error": str(e)}), 500
         
     if out_path:
+        log.info("Checking for YouTube cloud upload...")
+        do_yt_upload = request.form.get('youtube_upload') == 'true'
+        if do_yt_upload:
+            yt_secret = request.files.get('youtube_secret')
+            yt_token = request.files.get('youtube_token')
+            if yt_secret and yt_token:
+                log.info("Received YouTube credentials from client. Uploading directly from Cloud!")
+                try:
+                    import tempfile, os
+                    from seo import SEOGenerator
+                    from uploader import upload_youtube
+                    from config import Config
+                    
+                    cfg = Config()
+                    # Save tokens temporarily
+                    with tempfile.TemporaryDirectory() as td:
+                        s_path = os.path.join(td, "youtube_client_secret.json")
+                        t_path = os.path.join(td, "youtube_token.json")
+                        yt_secret.save(s_path)
+                        yt_token.save(t_path)
+                        
+                        # Override config temporarily
+                        cfg.YOUTUBE_CLIENT_SECRET_FILE = s_path
+                        cfg.YOUTUBE_TOKEN_FILE = t_path
+                        
+                        # Generate SEO
+                        seo_gen = SEOGenerator(groq_key=req_groq_key or os.getenv("GROQ_API_KEY", ""))
+                        pkgs = seo_gen.generate(game_name=game)
+                        yt_seo = pkgs.get("youtube")
+                        
+                        if yt_seo:
+                            success = upload_youtube(Path(out_path), yt_seo, cfg)
+                            if success:
+                                log.info("YouTube Cloud Upload Successful!")
+                            else:
+                                log.warning("YouTube Cloud Upload Failed.")
+                except Exception as e:
+                    log.error(f"YouTube Cloud Upload Exception: {e}")
+            else:
+                log.warning("YouTube Cloud Upload requested but credentials not received.")
+
         log.info("Sending to Telegram synchronously...")
         tg_token = request.form.get('telegram_bot_token', '').strip()
         tg_chat = request.form.get('telegram_chat_id', '').strip()

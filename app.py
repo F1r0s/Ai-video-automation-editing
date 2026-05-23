@@ -618,6 +618,8 @@ class VideoAutomationApp:
         self._last_errors = []   # collect render error traces
         self.source_mode = tk.StringVar(value="search")  # "search" or "url"
         self.sfx_enabled = tk.BooleanVar(value=True)
+        self.youtube_upload = tk.BooleanVar(value=False)
+        self.youtube_upload_location = tk.StringVar(value="local")
         self.seo_packages = {}  # populated after render
         self.seo_platform = tk.StringVar(value="youtube")
 
@@ -712,6 +714,28 @@ class VideoAutomationApp:
                    command=lambda: self._sync_render_mode("cloud"),
                    fg=FG, bg=BG_CARD, selectcolor=BG_INPUT, activebackground=BG_CARD,
                    activeforeground=FG).pack(anchor="w")
+
+        # YouTube Auto-Upload Frame
+        yt_frame = tk.Frame(left, bg=BG_CARD, highlightthickness=1, highlightbackground=BG_INPUT)
+        yt_frame.pack(fill="x", pady=3)
+        yi = tk.Frame(yt_frame, bg=BG_CARD); yi.pack(fill="x", padx=10, pady=8)
+        tk.Label(yi, text="📺 YOUTUBE AUTO-UPLOAD", font=("Segoe UI", 10, "bold"),
+             fg="#ff0000", bg=BG_CARD).pack(anchor="w")
+        yt_row1 = tk.Frame(yi, bg=BG_CARD)
+        yt_row1.pack(fill="x", pady=(6, 2))
+        tk.Checkbutton(yt_row1, text="Upload to YouTube after rendering", variable=self.youtube_upload,
+                   fg=FG, bg=BG_CARD, selectcolor=BG_INPUT, activebackground=BG_CARD,
+                   activeforeground=FG).pack(anchor="w")
+        yt_row2 = tk.Frame(yi, bg=BG_CARD)
+        yt_row2.pack(fill="x")
+        tk.Label(yt_row2, text="      Location:", font=("Segoe UI", 9), fg=FG_DIM, bg=BG_CARD).pack(side="left")
+        tk.Radiobutton(yt_row2, text="Local PC", variable=self.youtube_upload_location, value="local",
+                   fg=FG, bg=BG_CARD, selectcolor=BG_INPUT, activebackground=BG_CARD,
+                   activeforeground=FG).pack(side="left", padx=5)
+        tk.Radiobutton(yt_row2, text="Cloud Server", variable=self.youtube_upload_location, value="cloud",
+                   fg=FG, bg=BG_CARD, selectcolor=BG_INPUT, activebackground=BG_CARD,
+                   activeforeground=FG).pack(side="left", padx=5)
+
 
         settings_frame = tk.Frame(left, bg=BG_CARD, highlightthickness=1, highlightbackground=BG_INPUT)
         settings_frame.pack(fill="x", pady=3)
@@ -1415,6 +1439,36 @@ class VideoAutomationApp:
             self.direct_url_frame.pack_forget()
             self.results_frame.pack(fill="x", pady=3)
 
+    def _upload_youtube_local(self, final_path: str, game: str):
+        self.root.after(0, self._log, "  ▶ Starting YouTube Auto-Upload...")
+        try:
+            from seo import SEOGenerator
+            from uploader import upload_youtube
+            from config import Config
+            import os
+            from pathlib import Path
+            
+            cfg = Config()
+            seo_gen = SEOGenerator(groq_key=os.getenv("GROQ_API_KEY", ""))
+            
+            self.root.after(0, self._log, "    Generating AI SEO...")
+            seo_pkgs = seo_gen.generate(game_name=game)
+            yt_seo = seo_pkgs.get("youtube")
+            
+            if not yt_seo:
+                self.root.after(0, self._log, "    ❌ Failed to generate SEO for YouTube.")
+                return
+                
+            self.root.after(0, self._log, "    Uploading to YouTube...")
+            success = upload_youtube(Path(final_path), yt_seo, cfg)
+            
+            if success:
+                self.root.after(0, self._log, "    ✅ YouTube Upload Successful!")
+            else:
+                self.root.after(0, self._log, "    ❌ YouTube Upload Failed (check logs).")
+        except Exception as e:
+            self.root.after(0, self._log, f"    ❌ YouTube Upload Error: {e}")
+
     def _on_gen(self):
         g=self.game_name.get().strip(); ss=self.screenshot_path.get().strip()
         u=self.landing_url.get().strip(); c=self.max_videos.get()
@@ -1745,6 +1799,18 @@ class VideoAutomationApp:
                             if fh_rec:
                                 files['manual_recording'] = (Path(recording_path).name, fh_rec, 'video/mp4')
 
+                            if self.youtube_upload.get() and self.youtube_upload_location.get() == "cloud":
+                                data["youtube_upload"] = "true"
+                                try:
+                                    if os.path.exists("secrets/youtube_client_secret.json"):
+                                        files["youtube_secret"] = ("youtube_client_secret.json", open("secrets/youtube_client_secret.json", "rb"), "application/json")
+                                    if os.path.exists("secrets/youtube_token.json"):
+                                        files["youtube_token"] = ("youtube_token.json", open("secrets/youtube_token.json", "rb"), "application/octet-stream")
+                                    else:
+                                        self.root.after(0, self._log, "  ⚠ YouTube token not found! Run a local upload once to authorize.")
+                                except Exception as e:
+                                    self.root.after(0, self._log, f"  ⚠ Failed to attach YouTube credentials: {e}")
+
                             self.root.after(0, self._log, f"  ⬆ Upload attempt {attempt}/{max_retries}...")
                             headers = {}
                             cloud_secret = os.getenv("CLOUD_API_SECRET_KEY") or os.getenv("API_SECRET_KEY", "")
@@ -1799,6 +1865,16 @@ class VideoAutomationApp:
                                 video_url = f"{cloud_url}{video_url}"
                             self.root.after(0, self._set_output_url, video_url)
                             self.root.after(0, self._log, f"  ✓ Cloud render complete. Video: {video_url}")
+                            
+                            if self.youtube_upload.get() and self.youtube_upload_location.get() == "local":
+                                self.root.after(0, self._log, f"  📥 Downloading cloud video for local YouTube upload...")
+                                try:
+                                    import urllib.request, time
+                                    local_dl_path = f"downloads/edited/cloud_{int(time.time())}.mp4"
+                                    urllib.request.urlretrieve(video_url, local_dl_path)
+                                    self._upload_youtube_local(local_dl_path, game)
+                                except Exception as e:
+                                    self.root.after(0, self._log, f"  ❌ Download/Upload failed: {e}")
                         else:
                             self.root.after(0, self._log, "  ✓ Cloud Render Started! Check Telegram.")
                         rendered += 1
@@ -1890,6 +1966,9 @@ class VideoAutomationApp:
                             self.root.after(0, self._log, "  ⚠ Telegram not configured in .env (TELEGRAM_BOT_TOKEN or CHAT_ID missing)")
                     except Exception as e:
                         self.root.after(0, self._log, f"  ❌ Telegram Upload Failed: {e}")
+
+                    if self.youtube_upload.get() and self.youtube_upload_location.get() == "local":
+                        self._upload_youtube_local(final_path, game)
 
                     rendered += 1
             except Exception as e:
