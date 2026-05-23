@@ -48,10 +48,12 @@ def update_status(msg):
         pass
 
 
-def _send_videos_to_telegram(processed_files, caption_prefix="Promo ready"):
+def _send_videos_to_telegram(processed_files, caption_prefix="Promo ready", tg_token=None, tg_chat=None):
     from datetime import datetime
-    tg_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-    tg_chat = os.getenv("TELEGRAM_CHAT_ID", "")
+    if not tg_token:
+        tg_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    if not tg_chat:
+        tg_chat = os.getenv("TELEGRAM_CHAT_ID", "")
 
     if not tg_token or not tg_chat:
         err_msg = "Telegram not configured: set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID."
@@ -309,7 +311,9 @@ def generate():
         }), 500
 
     log.info("Sending to Telegram synchronously...")
-    _send_videos_to_telegram(processed_files.copy(), "Promo ready")
+    tg_token = request.form.get('telegram_bot_token', '').strip()
+    tg_chat = request.form.get('telegram_chat_id', '').strip()
+    _send_videos_to_telegram(processed_files.copy(), "Promo ready", tg_token=tg_token, tg_chat=tg_chat)
 
     video_1080p = str(processed_files[0])
     video_720p = _make_720p_copy(video_1080p)
@@ -426,7 +430,9 @@ def cloud_process():
         
     if out_path:
         log.info("Sending to Telegram synchronously...")
-        _send_videos_to_telegram([out_path], "Cloud Render Complete")
+        tg_token = request.form.get('telegram_bot_token', '').strip()
+        tg_chat = request.form.get('telegram_chat_id', '').strip()
+        _send_videos_to_telegram([out_path], "Cloud Render Complete", tg_token=tg_token, tg_chat=tg_chat)
 
     video_1080p = str(out_path)
     video_720p = _make_720p_copy(video_1080p)

@@ -1705,7 +1705,9 @@ class VideoAutomationApp:
                         'custom_script': custom_script,
                         'hook_start': str(hook_start),
                         'hook_end': str(hook_end),
-                        'sfx_enabled': str(self.sfx_enabled.get())
+                        'sfx_enabled': str(self.sfx_enabled.get()),
+                        'telegram_bot_token': os.getenv("TELEGRAM_BOT_TOKEN", "").strip(),
+                        'telegram_chat_id': os.getenv("TELEGRAM_CHAT_ID", "").strip(),
                     }
 
                     # ── Robust retry loop: 5 attempts with exponential backoff ──

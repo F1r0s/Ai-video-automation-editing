@@ -40,6 +40,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--groq-key", default=os.getenv("GROQ_API_KEY", ""))
     parser.add_argument("--sfx-enabled", action="store_true", default=True)
     parser.add_argument("--no-sfx", dest="sfx_enabled", action="store_false")
+    parser.add_argument("--telegram-token", default=os.getenv("TELEGRAM_BOT_TOKEN", ""))
+    parser.add_argument("--telegram-chat-id", default=os.getenv("TELEGRAM_CHAT_ID", ""))
     parser.add_argument("--api-secret", default=os.getenv("CLOUD_API_SECRET_KEY") or os.getenv("API_SECRET_KEY", ""), help="API Secret Key for Hugging Face authentication")
     return parser
 
@@ -87,6 +89,8 @@ def main() -> int:
         "elevenlabs_voice_id": args.elevenlabs_voice_id,
         "groq_key": args.groq_key,
         "sfx_enabled": "true" if args.sfx_enabled else "false",
+        "telegram_bot_token": args.telegram_token,
+        "telegram_chat_id": args.telegram_chat_id,
     }
 
     files = {"video": open(downloaded, "rb")}
