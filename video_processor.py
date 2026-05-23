@@ -257,7 +257,11 @@ class VideoProcessor:
             return False
         log.info(f"ElevenLabs TTS: using voice_id={self.el_voice_id}")
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{self.el_voice_id}"
-        headers = {"xi-api-key": self.el_key, "Content-Type": "application/json"}
+        headers = {
+            "xi-api-key": self.el_key, 
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
         payload = {
             "text": text,
             "model_id": "eleven_turbo_v2_5",
