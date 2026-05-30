@@ -1865,6 +1865,26 @@ class VideoAutomationApp:
                                 video_url = f"{cloud_url}{video_url}"
                             self.root.after(0, self._set_output_url, video_url)
                             self.root.after(0, self._log, f"  ✓ Cloud render complete. Video: {video_url}")
+                            # SEND TO TELEGRAM DIRECTLY VIA URL
+                            self.root.after(0, self._log, f"  📱 Sending Cloud Video to Telegram...")
+                            try:
+                                import requests as req
+                                from dotenv import load_dotenv
+                                load_dotenv(override=True)
+                                tg_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+                                tg_chat = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+                                if tg_token and tg_chat:
+                                    r_tg = req.post(
+                                        f"https://api.telegram.org/bot{tg_token}/sendVideo",
+                                        data={"chat_id": tg_chat, "video": video_url, "caption": f"✅ Cloud Render Complete: {game}"},
+                                        timeout=60
+                                    )
+                                    if r_tg.ok:
+                                        self.root.after(0, self._log, "  ✅ Sent to Telegram successfully!")
+                                    else:
+                                        self.root.after(0, self._log, f"  ❌ Telegram Error: {r_tg.text[:200]}")
+                            except Exception as e:
+                                self.root.after(0, self._log, f"  ❌ Telegram Upload Failed: {e}")
                             
                             if self.youtube_upload.get() and self.youtube_upload_location.get() == "local":
                                 self.root.after(0, self._log, f"  📥 Downloading cloud video for local YouTube upload...")
