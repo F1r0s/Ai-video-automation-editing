@@ -32,7 +32,7 @@ log = logging.getLogger("uploader")
 #  YOUTUBE
 # ═════════════════════════════════════════════════════════════════════════════
 
-def upload_youtube(video_path: Path, seo: SEOPackage, cfg: Config) -> bool:
+def upload_youtube(video_path: Path, seo: SEOPackage, cfg: Config, is_private: bool = False) -> bool:
     """
     Upload a video to YouTube Shorts via YouTube Data API v3.
 
@@ -82,7 +82,7 @@ def upload_youtube(video_path: Path, seo: SEOPackage, cfg: Config) -> bool:
                 "categoryId":  "20",                              # Gaming
             },
             "status": {
-                "privacyStatus":         "public",
+                "privacyStatus":         "private" if is_private else "public",
                 "selfDeclaredMadeForKids": False,
             },
         }
@@ -110,7 +110,7 @@ def upload_youtube(video_path: Path, seo: SEOPackage, cfg: Config) -> bool:
 #  TIKTOK
 # ═════════════════════════════════════════════════════════════════════════════
 
-def upload_tiktok(video_path: Path, seo: SEOPackage, cfg: Config) -> bool:
+def upload_tiktok(video_path: Path, seo: SEOPackage, cfg: Config, is_private: bool = False) -> bool:
     """
     Upload via TikTok Content Posting API.
     Docs: https://developers.tiktok.com/doc/content-posting-api-reference-upload-video
@@ -136,7 +136,7 @@ def upload_tiktok(video_path: Path, seo: SEOPackage, cfg: Config) -> bool:
         init_payload = {
             "post_info": {
                 "title":            caption,
-                "privacy_level":    "PUBLIC_TO_EVERYONE",
+                "privacy_level":    "SELF_ONLY" if is_private else "PUBLIC_TO_EVERYONE",
                 "disable_duet":     False,
                 "disable_comment":  False,
                 "disable_stitch":   False,
@@ -407,7 +407,7 @@ class SocialMediaUploader:
     def __init__(self, config: Config):
         self.cfg = config
 
-    def upload_all(self, video_path: Path, seo: dict[str, SEOPackage]) -> dict[str, bool]:
+    def upload_all(self, video_path: Path, seo: dict[str, SEOPackage], is_private: bool = False) -> dict[str, bool]:
         """
         Upload video to every platform.
         Returns a dict of {platform: success_bool}.
@@ -416,8 +416,8 @@ class SocialMediaUploader:
 
         log.info(f"  Uploading: {video_path.name}")
 
-        results["youtube"]   = upload_youtube(  video_path, seo["youtube"],   self.cfg)
-        results["tiktok"]    = upload_tiktok(   video_path, seo["tiktok"],    self.cfg)
+        results["youtube"]   = upload_youtube(  video_path, seo["youtube"],   self.cfg, is_private)
+        results["tiktok"]    = upload_tiktok(   video_path, seo["tiktok"],    self.cfg, is_private)
         results["instagram"] = upload_instagram(video_path, seo["instagram"], self.cfg)
         results["facebook"]  = upload_facebook( video_path, seo["facebook"],  self.cfg)
         results["x"]         = upload_x(        video_path, seo["x"],         self.cfg)

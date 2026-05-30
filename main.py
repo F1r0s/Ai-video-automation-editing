@@ -40,7 +40,7 @@ log = logging.getLogger("main")
 
 
 def run_pipeline(game_name: str, branding_image: str, landing_url: str,
-                 max_videos: int = 5, dry_run: bool = False) -> None:
+                 max_videos: int = 5, dry_run: bool = False, is_private: bool = False) -> None:
     """
     Full end-to-end pipeline:
       1. Scrape → 2. Edit → 3. Upload
@@ -119,6 +119,7 @@ def run_pipeline(game_name: str, branding_image: str, landing_url: str,
         uploader.upload_all(
             video_path = item["path"],
             seo        = item["seo"],
+            is_private = is_private,
         )
 
     # ── STEP 4: Telegram Notification ─────────────────────────────────────────
@@ -163,6 +164,7 @@ if __name__ == "__main__":
     parser.add_argument("--landing-url",   default="https://example.com", help="Landing page URL for end-card")
     parser.add_argument("--max-videos",    type=int, default=5,       help="Max videos to process per run")
     parser.add_argument("--dry-run",       action="store_true",       help="Skip uploads; edit only")
+    parser.add_argument("--private",       action="store_true",       help="Upload videos privately (YouTube/TikTok)")
 
     args = parser.parse_args()
 
@@ -172,4 +174,5 @@ if __name__ == "__main__":
         landing_url    = args.landing_url,
         max_videos     = args.max_videos,
         dry_run        = args.dry_run,
+        is_private     = args.private,
     )
