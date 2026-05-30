@@ -1,0 +1,28 @@
+name: Sync to Hugging Face hub
+on:
+  push:
+    branches: [main]
+  # to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  sync-to-hub:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          lfs: true
+      - name: Push to hub
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          # Configure Git
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          
+          # Add Hugging Face remote (Update the URL below if your username/space name is different!)
+          git remote add space https://higma55:$HF_TOKEN@huggingface.co/spaces/higma55/video-automation-bot
+          
+          # Force push to Hugging Face space
+          git push --force space main
